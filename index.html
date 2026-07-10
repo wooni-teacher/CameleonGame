@@ -74,6 +74,9 @@ input[type=text]{font-family:inherit;font-weight:700;font-size:18px;padding:10px
 .pchip.host .er{background:var(--yellow);}
 label.chk{display:flex;align-items:center;gap:8px;justify-content:center;font-size:15px;margin-top:12px;cursor:pointer;}
 label.chk input{width:20px;height:20px;}
+.mapBtn{font-size:14px;}
+.mapBtn.active{background:var(--blue);color:#fff;}
+.mapBtn:disabled{opacity:.55;cursor:default;}
 
 /* ===== HUD ===== */
 #hud{position:fixed;inset:0;pointer-events:none;z-index:30;}
@@ -266,6 +269,7 @@ label.chk input{width:20px;height:20px;}
       <div class="row"><button id="btnJoin">입장하기</button></div>
     </div>
     <div class="row"><button id="btnPractice" class="secondary" style="font-size:14px;">🎨 혼자 연습 모드 (오프라인)</button></div>
+    <div class="row"><button id="btnCycleMap" class="secondary" style="font-size:13px;" type="button">🗺️ 연습 맵: 교실</button></div>
     <div class="note" id="titleNote"></div>
   </div>
 </div>
@@ -280,6 +284,46 @@ label.chk input{width:20px;height:20px;}
     </div>
     <div id="qrWrap" title="QR을 클릭하면 크게 볼 수 있어요"></div>
     <div class="note">QR이나 링크를 열면 이 방으로 바로 연결됩니다. QR은 클릭하면 크게 볼 수 있어요.</div>
+    <div class="note" style="margin:12px 0 4px;">🗺️ 오늘의 맵</div>
+    <div class="row" id="mapButtons"></div>
+    <div id="roomSettingsWrap" class="hidden" style="margin-top:14px;">
+      <div class="note" style="margin-bottom:4px;">⏱️ 라운드 설정</div>
+      <div class="row" style="gap:14px;">
+        <label style="font-size:13px;display:flex;flex-direction:column;gap:4px;align-items:center;">숨는 시간
+          <select id="paintTimeSel">
+            <option value="60">1분</option>
+            <option value="90">1분 30초</option>
+            <option value="120">2분</option>
+            <option value="150">2분 30초</option>
+            <option value="180">3분</option>
+            <option value="240">4분</option>
+            <option value="300">5분</option>
+          </select>
+        </label>
+        <label style="font-size:13px;display:flex;flex-direction:column;gap:4px;align-items:center;">찾는 시간
+          <select id="seekTimeSel">
+            <option value="120">2분</option>
+            <option value="180">3분</option>
+            <option value="240">4분</option>
+            <option value="300">5분</option>
+            <option value="360">6분</option>
+            <option value="420">7분</option>
+          </select>
+        </label>
+        <label style="font-size:13px;display:flex;flex-direction:column;gap:4px;align-items:center;">술래 인원
+          <select id="seekerCountSel">
+            <option value="0">자동</option>
+            <option value="1">1명</option>
+            <option value="2">2명</option>
+            <option value="3">3명</option>
+            <option value="4">4명</option>
+            <option value="5">5명</option>
+            <option value="6">6명</option>
+          </select>
+        </label>
+      </div>
+      <div class="note" id="roomSettingsNote" style="margin-top:4px;"></div>
+    </div>
     <div class="roomShareTools">
       <input id="roomLinkInput" type="text" readonly aria-label="방 입장 링크">
       <button id="btnCopyRoomLink" class="secondary">🔗 링크 복사</button>
@@ -561,6 +605,35 @@ function buildTextures(){
     g.fillText("서로 도와요",w/2,h/2+14);});
   TEX.plaster=canvasTex(128,128,(g,w,h)=>{ g.fillStyle="#f2ecd8";g.fillRect(0,0,w,h);
     for(let i=0;i<60;i++){g.fillStyle="rgba(200,190,160,.3)";g.fillRect(R()*w,R()*h,2,2);}},4,2);
+  // ── 체육관 전용 텍스처 ──
+  TEX.gymFloor=canvasTex(256,256,(g,w,h)=>{ // 마루 + 코트 라인
+    g.fillStyle="#d9b483";g.fillRect(0,0,w,h);
+    for(let i=0;i<8;i++){const y=i*32;
+      g.fillStyle=i%2===0?"#d6b07e":"#dcb886";g.fillRect(0,y,w,32);
+      g.strokeStyle="rgba(120,85,45,.3)";g.lineWidth=1;g.strokeRect(0,y,w,32);}
+    g.strokeStyle="rgba(230,69,69,.6)";g.lineWidth=4;g.strokeRect(14,14,w-28,h-28);
+    g.strokeStyle="rgba(74,127,181,.6)";g.lineWidth=3;
+    g.beginPath();g.arc(w/2,h/2,32,0,7);g.stroke();
+    g.beginPath();g.moveTo(w/2,10);g.lineTo(w/2,h-10);g.stroke();
+  },10,7);
+  TEX.gymWall=canvasTex(128,128,(g,w,h)=>{ g.fillStyle="#eef2e4";g.fillRect(0,0,w,h);
+    g.fillStyle="rgba(143,212,193,.28)";g.fillRect(0,h*0.6,w,h*0.09);
+    for(let i=0;i<50;i++){g.fillStyle="rgba(190,200,180,.25)";g.fillRect(R()*w,R()*h,2,2);}},4,2);
+  TEX.stageCurtain=canvasTex(64,128,(g,w,h)=>{ g.fillStyle="#b53f4f";g.fillRect(0,0,w,h);
+    for(let x=0;x<w;x+=10){const a=0.12+0.10*Math.sin(x*0.5);g.fillStyle=`rgba(0,0,0,${a})`;g.fillRect(x,0,5,h);}},4,1);
+  // ── 급식실 전용 텍스처 ──
+  TEX.cafFloor=canvasTex(128,128,(g,w,h)=>{ // 타일 바닥
+    g.fillStyle="#e6ded0";g.fillRect(0,0,w,h);
+    g.strokeStyle="rgba(120,110,90,.35)";g.lineWidth=2;
+    for(let i=0;i<=4;i++){g.beginPath();g.moveTo(i*32,0);g.lineTo(i*32,h);g.stroke();
+      g.beginPath();g.moveTo(0,i*32);g.lineTo(w,i*32);g.stroke();}
+  },12,9);
+  TEX.cafWall=canvasTex(128,128,(g,w,h)=>{ g.fillStyle="#fdf6e8";g.fillRect(0,0,w,h);
+    g.fillStyle="rgba(240,180,120,.22)";g.fillRect(0,h*0.55,w,h*0.1);
+    for(let i=0;i<50;i++){g.fillStyle="rgba(210,190,150,.2)";g.fillRect(R()*w,R()*h,2,2);}},4,2);
+  TEX.trayTop=canvasTex(128,128,(g,w,h)=>{ g.fillStyle="#c7ccd1";g.fillRect(0,0,w,h);
+    g.strokeStyle="rgba(90,100,110,.4)";g.lineWidth=2;
+    for(let i=0;i<10;i++){g.beginPath();const y=R()*h;g.moveTo(0,y);g.lineTo(w,y+R()*4-2);g.stroke();}});
 }
 
 /* ================= 렌더러 / 씬 ================= */
@@ -579,12 +652,13 @@ const colliders=[];       // THREE.Box3 배열
 const samplables=[];      // 스포이트/충돌 레이캐스트 대상 환경 메시
 const refillZones=[];     // {x,z,r,label}
 let hiderSpawns=[], seekerSpawn=new THREE.Vector3(0,0,0);
+const mapGroup=new THREE.Group(); scene.add(mapGroup); // 맵 오브젝트 전용 그룹 — 맵 전환 시 통째로 비웁니다
 
 function lambert(opt){ return new THREE.MeshLambertMaterial(opt); }
 function addBox(w,h,d,mat,x,y,z,{collide=true,sample=true,ry=0}={}){
   const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),mat);
   m.position.set(x,y,z); if(ry)m.rotation.y=ry;
-  scene.add(m);
+  mapGroup.add(m);
   if(collide){ m.updateMatrixWorld(); colliders.push(new THREE.Box3().setFromObject(m)); }
   if(sample) samplables.push(m);
   return m;
@@ -604,7 +678,7 @@ function addMeshCollider(mesh,padding=0){
 }
 function addCyl(r,len,mat,x,y,z,{collide=true,sample=true,rz=0,rx=0,ry=0,rt=r}={}){
   const m=new THREE.Mesh(new THREE.CylinderGeometry(rt,r,len,10),mat);
-  m.position.set(x,y,z); m.rotation.set(rx,ry,rz); scene.add(m);
+  m.position.set(x,y,z); m.rotation.set(rx,ry,rz); mapGroup.add(m);
   if(collide)addMeshCollider(m,0.015);
   if(sample) samplables.push(m);
   return m;
@@ -651,13 +725,13 @@ function addStairs(x,z,dirX,dirZ,targetH,stepW=4,stepH=1.25,stepD=1.7,mats=null)
 
 /* ================= 교실 맵 (120 × 90) ================= */
 const ROOM_W=120, ROOM_D=90, WALL_H=56;
-function buildMap(){
+function buildClassroomMap(){
   // 바닥
   const floor=new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W,ROOM_D),lambert({map:TEX.floor}));
-  floor.rotation.x=-Math.PI/2; scene.add(floor); samplables.push(floor);
+  floor.rotation.x=-Math.PI/2; mapGroup.add(floor); samplables.push(floor);
   // 천장
   const ceil=new THREE.Mesh(new THREE.PlaneGeometry(ROOM_W,ROOM_D),lambert({color:0xf5f2e8}));
-  ceil.rotation.x=Math.PI/2; ceil.position.y=WALL_H; scene.add(ceil);
+  ceil.rotation.x=Math.PI/2; ceil.position.y=WALL_H; mapGroup.add(ceil);
   // 벽 4면 (앞: -z 칠판벽 / 뒤: +z 게시판·사물함 / 좌: -x 복도문 / 우: +x 창가)
   const wallMat=lambert({map:TEX.plaster});
   addBox(ROOM_W,WALL_H,2,wallMat,0,WALL_H/2,-ROOM_D/2-1);
@@ -694,7 +768,7 @@ function buildMap(){
   // ── 1. 칠판 벽 (-z) ──
   const bw=70,bh=26;
   const board=new THREE.Mesh(new THREE.PlaneGeometry(bw,bh),lambert({map:TEX.board}));
-  board.position.set(0,10+bh/2,-ROOM_D/2+0.15); scene.add(board); samplables.push(board);
+  board.position.set(0,10+bh/2,-ROOM_D/2+0.15); mapGroup.add(board); samplables.push(board);
   addAABBCollider(0,10+bh/2,-ROOM_D/2+0.15,bw,bh,0.5); // 칠판 판넬 자체도 막습니다 (기존엔 충돌체가 없었음)
   const boardFrameMat=lambert({color:0x8a5a33});
   addBox(bw+3,1.5,1.5,boardFrameMat,0,9.5,-ROOM_D/2+0.9); // 분필 받침대
@@ -708,7 +782,7 @@ function buildMap(){
   // 교탁 + 급훈 액자 + 문(앞문=술래 스폰)
   addBox(12,10,7,lambert({map:TEX.deskTop}),-38,5,-ROOM_D/2+8);
   const motto=new THREE.Mesh(new THREE.PlaneGeometry(16,8),lambert({map:TEX.motto}));
-  motto.position.set(-42,42,-ROOM_D/2+0.2); scene.add(motto); samplables.push(motto);
+  motto.position.set(-42,42,-ROOM_D/2+0.2); mapGroup.add(motto); samplables.push(motto);
   addAABBCollider(-42,42,-ROOM_D/2+0.2,16,8,0.5); // 급훈 액자 — 통과 불가 추가
   addBox(10,26,1.2,lambert({color:0x9a6b3f}),52,13,-ROOM_D/2+0.6); // 앞문
   const doorFrame=lambert({color:0x6f4c31});
@@ -726,7 +800,7 @@ function buildMap(){
 
   // ── 2. 게시판 (+z 벽, 바닥까지 낮게 — 지우개가 작품 앞에 붙을 수 있게) ──
   const cork=new THREE.Mesh(new THREE.PlaneGeometry(46,20),lambert({map:TEX.cork}));
-  cork.position.set(-30,10.4,ROOM_D/2-0.15); cork.rotation.y=Math.PI; scene.add(cork); samplables.push(cork);
+  cork.position.set(-30,10.4,ROOM_D/2-0.15); cork.rotation.y=Math.PI; mapGroup.add(cork); samplables.push(cork);
   addAABBCollider(-30,10.4,ROOM_D/2-0.15,46,20,0.5); // 게시판 판넬 — 통과 불가 추가
   const artCols=["#E64545","#4A7FB5","#F5C518","#7ecb5f","#e07f3e","#b56fd4"];
   const artRand=mulberry32(77);
@@ -742,7 +816,7 @@ function buildMap(){
       g.fillStyle=artCols[(i+3)%6];g.beginPath();g.arc(20+artRand()*24,20+artRand()*16,7,0,7);g.fill();
     });
     const p=new THREE.Mesh(new THREE.PlaneGeometry(6.4,6.4),lambert({map:art}));
-    p.position.set(ax,ay,ROOM_D/2-0.5); p.rotation.y=Math.PI; scene.add(p); samplables.push(p);
+    p.position.set(ax,ay,ROOM_D/2-0.5); p.rotation.y=Math.PI; mapGroup.add(p); samplables.push(p);
   }
 
   // ── 3. 사물함 (+z 벽 우측, 6열×4행, 칸 8×5) ──
@@ -816,7 +890,7 @@ function buildMap(){
   deskInfo.forEach((d,i)=>{
     const topY=14;
     if(i%2===0){ const nb=new THREE.Mesh(new THREE.PlaneGeometry(7,5),lambert({map:TEX.notebook}));
-      nb.rotation.x=-Math.PI/2; nb.position.set(d.dx-2,topY+0.06,d.dz); scene.add(nb); samplables.push(nb); }
+      nb.rotation.x=-Math.PI/2; nb.position.set(d.dx-2,topY+0.06,d.dz); mapGroup.add(nb); samplables.push(nb); }
     if(i%3===0){ addBox(5,0.6,3.6,lambert({color:BOOK_COLS[i%6]}),d.dx+3.5,topY+0.3,d.dz-1.5);
                  addBox(5,0.6,3.6,lambert({color:BOOK_COLS[(i+2)%6]}),d.dx+3.5,topY+0.9,d.dz-1.5); }
     if(i===3){ addBox(6,1.6,2.4,lambert({color:0xE05a8a}),d.dx-3,topY+0.8,d.dz+2); }   // 필통
@@ -834,13 +908,13 @@ function buildMap(){
     addCyl(0.25,4,leaf,px,21,pz); addCyl(0.25,3.4,leaf,px+0.9,20.6,pz+0.5,{rz:0.4});
     addCyl(0.25,3.4,leaf,px-0.9,20.6,pz-0.5,{rz:-0.4});
     const bush=new THREE.Mesh(new THREE.SphereGeometry(1.7,8,6),leaf);
-    bush.position.set(px,23,pz); scene.add(bush); samplables.push(bush);
+    bush.position.set(px,23,pz); mapGroup.add(bush); samplables.push(bush);
     addMeshCollider(bush,0.04);
   }
   for(let i=0;i<4;i++){ // 커튼 (충돌 없음)
     const cur=new THREE.Mesh(new THREE.PlaneGeometry(11,34),lambert({map:TEX.curtain,side:THREE.DoubleSide}));
     cur.position.set(ROOM_W/2-4.3,16+17,-30+i*20); cur.rotation.y=-Math.PI/2;
-    scene.add(cur); samplables.push(cur);
+    mapGroup.add(cur); samplables.push(cur);
     addMeshCollider(cur,0.08);
   }
   addStairs(ROOM_W/2-9,28,0,-1,15.5,5.2,1.15,2.1); // 교과서 대계단 → 창턱
@@ -870,12 +944,281 @@ function buildMap(){
 
   // ── 8. 시간표 포스터 (좌측 벽) ──
   const tt=new THREE.Mesh(new THREE.PlaneGeometry(14,14),lambert({map:TEX.timetable}));
-  tt.position.set(-ROOM_W/2+0.2,18,-10); tt.rotation.y=Math.PI/2; scene.add(tt); samplables.push(tt);
+  tt.position.set(-ROOM_W/2+0.2,18,-10); tt.rotation.y=Math.PI/2; mapGroup.add(tt); samplables.push(tt);
 
   // 스폰 지점 (지우개: 교실 곳곳 분산)
   hiderSpawns=[[-20,0],[10,10],[-40,20],[20,-25],[-5,-15],[35,15],[-30,-30],[8,32],
                [-50,10],[25,35],[40,-30],[-15,38],[0,0],[-45,-20],[30,0],[12,-38],
                [-25,5],[45,25],[-8,22],[18,18]].map(p=>new THREE.Vector3(p[0],0,p[1]));
+}
+
+/* ================= 체육관 맵 (170 × 120) ================= */
+const GYM_W=170, GYM_D=120, GYM_H=64;
+function addHoop(x,z,facing){ // 농구 골대 (장식용): facing=+1이면 -x쪽을 향해 달림
+  const board=new THREE.Mesh(new THREE.PlaneGeometry(8,5.4),lambert({color:0xffffff,transparent:true,opacity:0.9}));
+  board.position.set(x,GYM_H*0.55,z); board.rotation.y=Math.PI/2; mapGroup.add(board); samplables.push(board);
+  const rim=new THREE.Mesh(new THREE.TorusGeometry(1.7,0.16,8,16),lambert({color:0xE64545}));
+  rim.position.set(x+facing*2.1,GYM_H*0.55-3.1,z); rim.rotation.x=Math.PI/2; mapGroup.add(rim);
+}
+function addSoccerGoal(x,z,mouthFacing){ // 축구 골대: mouthFacing=+1이면 개방부가 +z쪽(코트 안쪽)을 향함
+  const gw=9, gh=6.4, postR=0.32;
+  const postMat=lambert({color:0xffffff});
+  addCyl(postR,gh,postMat,x-gw/2,gh/2,z,{rt:postR});
+  addCyl(postR,gh,postMat,x+gw/2,gh/2,z,{rt:postR});
+  addBox(gw+0.6,0.5,0.5,postMat,x,gh,z);
+  const net=new THREE.Mesh(new THREE.PlaneGeometry(gw,gh),lambert({color:0xffffff,transparent:true,opacity:0.28,side:THREE.DoubleSide}));
+  net.position.set(x,gh/2,z-mouthFacing*1.4); mapGroup.add(net); samplables.push(net);
+}
+function buildGymMap(){
+  // 바닥 (코트 라인 포함)
+  const floor=new THREE.Mesh(new THREE.PlaneGeometry(GYM_W,GYM_D),lambert({map:TEX.gymFloor}));
+  floor.rotation.x=-Math.PI/2; mapGroup.add(floor); samplables.push(floor);
+  // 천장
+  const ceil=new THREE.Mesh(new THREE.PlaneGeometry(GYM_W,GYM_D),lambert({color:0xf7f5ec}));
+  ceil.rotation.x=Math.PI/2; ceil.position.y=GYM_H; mapGroup.add(ceil);
+  // 벽 4면
+  const wallMat=lambert({map:TEX.gymWall});
+  addBox(GYM_W,GYM_H,2,wallMat,0,GYM_H/2,-GYM_D/2-1);
+  addBox(GYM_W,GYM_H,2,wallMat,0,GYM_H/2, GYM_D/2+1);
+  addBox(2,GYM_H,GYM_D,wallMat,-GYM_W/2-1,GYM_H/2,0);
+  addBox(2,GYM_H,GYM_D,wallMat, GYM_W/2+1,GYM_H/2,0);
+  // 걸레받이
+  const baseboardMat=lambert({color:0xb0a888});
+  addBox(GYM_W-1,1.0,0.45,baseboardMat,0,0.5,-GYM_D/2+0.15,{collide:false});
+  addBox(GYM_W-1,1.0,0.45,baseboardMat,0,0.5, GYM_D/2-0.15,{collide:false});
+  addBox(0.45,1.0,GYM_D-1,baseboardMat,-GYM_W/2+0.15,0.5,0,{collide:false});
+  addBox(0.45,1.0,GYM_D-1,baseboardMat, GYM_W/2-0.15,0.5,0,{collide:false});
+  // 천장 조명 (넓은 공간이라 더 많이)
+  const lightMat=lambert({color:0xfffdf0,emissive:0x2b2a20,emissiveIntensity:0.35});
+  [-56,-19,19,56].forEach(x=>[-30,30].forEach(z=>{
+    addBox(20,0.35,3.4,lightMat,x,GYM_H-0.4,z,{collide:false,sample:false});
+    addBox(20.8,0.18,4.2,lambert({color:0xc8c8c2}),x,GYM_H-0.63,z,{collide:false,sample:false});
+  }));
+
+  // ── 1. 무대 (-z, 조회·공연용) + 커튼 뒤 백스테이지 은신공간 + 계단(점프 경로 ①) ──
+  const stageH=13, stageD=14, stageFrontZ=-32;
+  const stageCZ=stageFrontZ-stageD/2; // -39
+  addBox(GYM_W-20,stageH,stageD,lambert({map:TEX.deskTop}),0,stageH/2,stageCZ);
+  // 무대와 뒷벽 사이에 6~12유닛 폭의 통로를 남겨, 커튼 뒤에서 실제로 숨을 수 있게 합니다.
+  const curtain=new THREE.Mesh(new THREE.PlaneGeometry(GYM_W-24,34),lambert({map:TEX.stageCurtain,side:THREE.DoubleSide}));
+  curtain.position.set(0,17,stageCZ-stageD/2-6); mapGroup.add(curtain); samplables.push(curtain); // 충돌 없음: 통과 가능, 시야만 가림
+  addStairs(-GYM_W/2+16,-18,0,-1,stageH,7,1.3,1.8,
+    [0xE64545,0xF5C518,0x3f9d5a,0x4A7FB5].map(c=>lambert({color:c})));
+
+  // 입구 문 (+z 벽, 술래 스폰)
+  addBox(11,26,1.2,lambert({color:0x9a6b3f}),GYM_W/2-16,13,GYM_D/2+0.6);
+  const doorFrame=lambert({color:0x6f4c31});
+  addBox(0.8,27.5,1.0,doorFrame,GYM_W/2-21.6,13.75,GYM_D/2+0.7);
+  addBox(0.8,27.5,1.0,doorFrame,GYM_W/2-10.4,13.75,GYM_D/2+0.7);
+  addBox(12.6,0.8,1.0,doorFrame,GYM_W/2-16,27.1,GYM_D/2+0.7);
+  seekerSpawn.set(GYM_W/2-16,0,GYM_D/2-9);
+
+  // ── 2. 늑목 (+x 벽, 정글짐형 사다리) — 점프 경로 ② + 물감 리필 ① ──
+  // 가로대 간격을 점프로 오를 수 있는 1.25유닛으로 맞췄습니다 (기존 2.2는 너무 넓어 오를 수 없었음).
+  const barX=GYM_W/2-4, barZ=-GYM_D/2+34;
+  const RUNG_GAP=1.25, rungCount=19, BAR_H=rungCount*RUNG_GAP;
+  addBox(2,BAR_H,26,lambert({color:0xc9a25b}),barX,BAR_H/2,barZ);
+  for(let i=1;i<=rungCount;i++){ addBox(1.4,0.5,26.6,lambert({color:0xe0c184}),barX-1.2,i*RUNG_GAP,barZ); }
+  const palX=barX-4.4, palY=rungCount*RUNG_GAP, palZ=barZ;
+  addCyl(3.4,0.8,lambert({color:0xF7EED9}),palX,palY+0.4,palZ,{rt:3.4});
+  [0xE64545,0xF5C518,0x3f9d5a,0x4A7FB5,0xb56fd4].forEach((cc,i)=>{ const a=i/5*Math.PI*2;
+    addCyl(0.8,0.5,lambert({color:cc}),palX+Math.cos(a)*1.9,palY+0.95,palZ+Math.sin(a)*1.9,{rt:0.8}); });
+  refillZones.push({x:palX,z:palZ,r:6,yMin:palY-2,yMax:palY+6,label:"물감 파레트"});
+
+  // ── 3. 매트 산 (파랑/노랑/빨강/초록 체육 매트) — 점프 경로 ③ + 숨숨 구역 ──
+  // 계단 한 칸 높이를 1.3유닛으로 낮춰 오르기 쉽게 조정했습니다.
+  const matMats=[0x3f6fd4,0xF5C518,0xE64545,0x3f9d5a].map(c=>lambert({color:c}));
+  addStairs(-24,4,1,0,9.5,7,1.3,2.2,matMats);
+  addStairs(-9,4,1,0,15.5,7,1.3,2.2,matMats);
+  for(let i=0;i<5;i++){ addBox(9-i*0.8,1.2,7-i*0.6,matMats[i%4],-40+i*0.3,0.6+i*1.25,30,{collide:i<4}); }
+
+  // ── 4. 뜀틀 (계단식 상자, 은신+점프 경로 ④) ──
+  { const layers=[[13,7,7.5],[11,6.2,6.6],[9,5.4,5.7],[7,4.6,4.8],[5,3.8,4.0]];
+    let vy=0; const cx=26,cz=-4;
+    layers.forEach((L,i)=>{ vy+=L[1]/2; addBox(L[0],L[1],L[2],lambert({color:BOOK_COLS[i%BOOK_COLS.length]}),cx,vy,cz); vy+=L[1]/2; }); }
+
+  // ── 5. 배구 네트 (코트 중앙, 장식+은신) ──
+  const netPoleMat=lambert({color:0x555555});
+  addCyl(0.6,GYM_H*0.32,netPoleMat,-42,GYM_H*0.16,18,{rt:0.6});
+  addCyl(0.6,GYM_H*0.32,netPoleMat, 42,GYM_H*0.16,18,{rt:0.6});
+  const net=new THREE.Mesh(new THREE.PlaneGeometry(84,9),lambert({color:0xffffff,transparent:true,opacity:0.22,side:THREE.DoubleSide}));
+  net.position.set(0,GYM_H*0.32+4.5,18); mapGroup.add(net); samplables.push(net);
+
+  // ── 6. 농구 골대 (좌우 벽, 장식) ──
+  addHoop(-GYM_W/2+2.2,-38,1);
+  addHoop( GYM_W/2-2.2, 38,-1);
+
+  // ── 7. 벤치 + 공 보관함 (-x 벽) ──
+  const benchMat=lambert({color:0x9a6b3f}), benchLegMat=lambert({color:0x555555});
+  for(let i=0;i<4;i++){ const bz=-42+i*22;
+    addBox(3,3.4,14,benchMat,-GYM_W/2+6,3.4,bz);
+    addBox(2.6,3.2,1.2,benchLegMat,-GYM_W/2+6,1.6,bz-5.4);
+    addBox(2.6,3.2,1.2,benchLegMat,-GYM_W/2+6,1.6,bz+5.4);
+  }
+  addBox(11,7,7,lambert({color:0x8FD4C1}),-GYM_W/2+13,3.5,44); // 공 보관함
+  const ballC=[0xE64545,0xF5C518,0x4A7FB5,0x3f9d5a,0xe07f3e];
+  const ballRand=mulberry32(303);
+  for(let i=0;i<10;i++){ const bx=-GYM_W/2+18+ballRand()*14, bz=30+ballRand()*20;
+    const ball=new THREE.Mesh(new THREE.SphereGeometry(1.1,8,6),lambert({color:ballC[i%ballC.length]}));
+    ball.position.set(bx,1.1,bz); mapGroup.add(ball); samplables.push(ball);
+    addMeshCollider(ball,0.02);
+  }
+
+  // ── 8. 물통 (리필 ②) ──
+  addCyl(2.6,3.4,lambert({color:0x9fd3f0}),GYM_W/2-9,1.7,-34,{rt:3.0,collide:true});
+  refillZones.push({x:GYM_W/2-9,z:-34,r:6.5,yMin:0,yMax:6,label:"물통"});
+
+  // ── 9. 축구 골대 (오른쪽 복도, 서로 마주보게 배치 — 그물 뒤에 숨을 수 있음) ──
+  addSoccerGoal(60,-20,1);
+  addSoccerGoal(60,48,-1);
+
+  // ── 10. 돌돌 만 매트 기둥 (세워둔 매트, 추가 숨숨 스팟) ──
+  const rollColors=[0xE64545,0xF5C518,0x3f9d5a,0x4A7FB5];
+  [[-30,45],[-24,42],[-34,40],[-28,36]].forEach((p,i)=>{
+    addCyl(1.3,5.6,lambert({color:rollColors[i%rollColors.length]}),p[0],2.8,p[1],{rt:1.3});
+    addCyl(1.32,0.4,lambert({color:0xfff8e7}),p[0],5.6,p[1],{rt:1.32,collide:false});
+  });
+
+  // ── 11. 콘(고깔) 슬라럼 라인 (장식 + 위장용 소품) ──
+  const coneMat=lambert({color:0xff7a1a});
+  [[-48,-8],[-34,-11],[-20,-8],[-6,-11],[8,-8],[22,-11],[36,-8],[50,-11]].forEach(p=>{
+    addCyl(0.9,1.8,coneMat,p[0],0.9,p[1],{rt:0.05,collide:false});
+  });
+
+  // 스폰 지점 (지우개: 체육관 곳곳 분산, 백스테이지 커튼 뒤 포함)
+  hiderSpawns=[[-50,20],[-20,-30],[10,-20],[40,-10],[-60,-10],[20,30],[-35,30],[55,10],
+               [0,-25],[-15,20],[30,-30],[60,-30],[-55,44],[15,44],[45,30],[-45,-30],
+               [5,10],[-10,44],[50,-25],[-30,4],[0,-53],[-30,-53],[30,-53]].map(p=>new THREE.Vector3(p[0],0,p[1]));
+}
+
+/* ================= 급식실 맵 (130 × 95) ================= */
+const CAF_W=130, CAF_D=95, CAF_H=46;
+function addLunchTable(cx,cz,withStairs=false){
+  // 상판(13) + 다리 + 양옆 긴 벤치(좌석 6.4)
+  const topMat=lambert({map:TEX.trayTop}), legMat=lambert({color:0x8f8f97}), benchMat=lambert({color:0x7fb8e8});
+  addBox(24,1.2,8,topMat,cx,13,cz);
+  [[-10.5,-3.2],[10.5,-3.2],[-10.5,3.2],[10.5,3.2]].forEach(p=>addBox(1,12.4,1,legMat,cx+p[0],6.2,cz+p[1]));
+  [-1,1].forEach(side=>{
+    const bz=cz+side*6.2;
+    addBox(24,1,3,benchMat,cx,6.4,bz);
+    addBox(1,6.4,2.4,legMat,cx-9,3.2,bz);
+    addBox(1,6.4,2.4,legMat,cx+9,3.2,bz);
+  });
+  if(withStairs){ // 테이블 짧은 쪽(벤치 없는 면)에서 상판 위로 오르는 매트 계단 — 한 칸 1.2유닛
+    addStairs(cx-26,cz,1,0,13,4,1.2,1.4,
+      [0x3f6fd4,0xF5C518,0xE64545,0x3f9d5a].map(c=>lambert({color:c})));
+  }
+}
+function buildCafeteriaMap(){
+  // 바닥 (타일)
+  const floor=new THREE.Mesh(new THREE.PlaneGeometry(CAF_W,CAF_D),lambert({map:TEX.cafFloor}));
+  floor.rotation.x=-Math.PI/2; mapGroup.add(floor); samplables.push(floor);
+  // 천장
+  const ceil=new THREE.Mesh(new THREE.PlaneGeometry(CAF_W,CAF_D),lambert({color:0xf7f3e6}));
+  ceil.rotation.x=Math.PI/2; ceil.position.y=CAF_H; mapGroup.add(ceil);
+  // 벽 4면
+  const wallMat=lambert({map:TEX.cafWall});
+  addBox(CAF_W,CAF_H,2,wallMat,0,CAF_H/2,-CAF_D/2-1);
+  addBox(CAF_W,CAF_H,2,wallMat,0,CAF_H/2, CAF_D/2+1);
+  addBox(2,CAF_H,CAF_D,wallMat,-CAF_W/2-1,CAF_H/2,0);
+  addBox(2,CAF_H,CAF_D,wallMat, CAF_W/2+1,CAF_H/2,0);
+  // 걸레받이
+  const baseboardMat=lambert({color:0xc9b48a});
+  addBox(CAF_W-1,0.9,0.45,baseboardMat,0,0.45,-CAF_D/2+0.15,{collide:false});
+  addBox(CAF_W-1,0.9,0.45,baseboardMat,0,0.45, CAF_D/2-0.15,{collide:false});
+  addBox(0.45,0.9,CAF_D-1,baseboardMat,-CAF_W/2+0.15,0.45,0,{collide:false});
+  addBox(0.45,0.9,CAF_D-1,baseboardMat, CAF_W/2-0.15,0.45,0,{collide:false});
+  // 천장 조명
+  const lightMat=lambert({color:0xfffdf0,emissive:0x2b2a20,emissiveIntensity:0.35});
+  [-40,0,40].forEach(x=>[-25,25].forEach(z=>{
+    addBox(16,0.35,3,lightMat,x,CAF_H-0.35,z,{collide:false,sample:false});
+    addBox(16.7,0.18,3.7,lambert({color:0xc8c8c2}),x,CAF_H-0.57,z,{collide:false,sample:false});
+  }));
+
+  // ── 1. 배식대 (-z 벽) — 국통 리필 ① + 식판 소품 ──
+  addBox(88,7,6,lambert({color:0xe4e8ea}),0,3.5,-CAF_D/2+6);
+  const glass=lambert({color:0xdff0fa,transparent:true,opacity:0.35});
+  addBox(88,7,0.3,glass,0,10.5,-CAF_D/2+8.9);
+  const trayC=[0xE64545,0xF5C518,0x3f9d5a,0x4A7FB5,0xe07f3e];
+  for(let i=0;i<9;i++){ addBox(6.5,1.2,4,lambert({color:trayC[i%trayC.length]}),-38+i*9.5,7.6,-CAF_D/2+5.5,{collide:false}); }
+  addCyl(3.2,4.2,lambert({color:0xb0b6bb}),40,2.1,-CAF_D/2+6,{rt:3.4,collide:true}); // 큰 국통
+  refillZones.push({x:40,z:-CAF_D/2+6,r:6,yMin:0,yMax:7,label:"국통"});
+  seekerSpawn.set(0,0,CAF_D/2-9);
+
+  // 입구 문 (+z 벽)
+  addBox(11,26,1.2,lambert({color:0x9a6b3f}),0,13,CAF_D/2+0.6);
+  const doorFrame=lambert({color:0x6f4c31});
+  addBox(0.8,27.5,1.0,doorFrame,-5.6,13.75,CAF_D/2+0.7);
+  addBox(0.8,27.5,1.0,doorFrame, 5.6,13.75,CAF_D/2+0.7);
+  addBox(12.6,0.8,1.0,doorFrame,0,27.1,CAF_D/2+0.7);
+
+  // ── 2. 급식 테이블 3×3 (첫 테이블에만 오르는 계단 — 점프 경로 ①) ──
+  const rowsZ=[-16,10,36], colsX=[-38,0,38];
+  let first=true;
+  rowsZ.forEach(rz=>colsX.forEach(cx=>{ addLunchTable(cx,rz,first); first=false; }));
+
+  // ── 3. 정수기 (리필 ②) + 식판 반납대 + 분리수거함 (+z 벽 쪽) ──
+  addCyl(2.0,7,lambert({color:0x9fd3f0}),-48,3.5,CAF_D/2-8,{rt:2.4,collide:true});
+  refillZones.push({x:-48,z:CAF_D/2-8,r:5.5,yMin:0,yMax:8,label:"정수기"});
+  addBox(14,4,5,lambert({color:0xb7bec4}),44,2,CAF_D/2-8); // 식판 반납대
+  const binC=[0x3f9d5a,0xF5C518,0x4A7FB5];
+  binC.forEach((cc,i)=>{ addBox(5,6,5,lambert({color:cc}),50+i*6.5,3,CAF_D/2-16); });
+
+  // ── 4. 오픈 주방 코너 (+x 벽, 벽으로 막지 않아 자유롭게 드나들 수 있음) ──
+  addBox(6,7,26,lambert({color:0xc7ccd1}),CAF_W/2-6,3.5,-30); // 스테인리스 조리대
+  [-38,-24].forEach(z=>{
+    addCyl(3.4,5.2,lambert({color:0xaeb4ba}),CAF_W/2-10,2.6,z,{rt:3.6,collide:true}); // 대형 국솥
+    addCyl(3.5,0.4,lambert({color:0x7c8288}),CAF_W/2-10,5.2,z,{rt:3.5,collide:false}); // 솥뚜껑
+  });
+  addBox(6,7,14,lambert({color:0xc7ccd1}),CAF_W/2-6,3.5,-4); // 조리대 2
+  const potC=[0xE64545,0xF5C518,0x4A7FB5];
+  for(let i=0;i<6;i++){ const pz=6+i*5;
+    addCyl(1.0,1.6,lambert({color:potC[i%3]}),CAF_W/2-14+((i%2)?2:-2),0.8,pz,{rt:1.0}); } // 식자재 통
+
+  // ── 5. 오늘의 메뉴 게시판 (-x 벽) ──
+  const menu=new THREE.Mesh(new THREE.PlaneGeometry(14,10),lambert({map:TEX.motto}));
+  menu.position.set(-CAF_W/2+0.2,20,-20); menu.rotation.y=Math.PI/2; mapGroup.add(menu); samplables.push(menu);
+
+  // ── 6. 화분 + 대기줄 표시 콘 (장식 + 위장용 소품) ──
+  const coneMat=lambert({color:0xff7a1a});
+  [[-30,32],[-30,26],[-30,20]].forEach(p=>addCyl(0.9,1.8,coneMat,p[0],0.9,p[1],{rt:0.05,collide:false}));
+  for(let i=0;i<3;i++){ const px=-CAF_W/2+3, pz=-40+i*36;
+    addCyl(1.8,3,lambert({color:0xe07f3e}),px,3.5,pz,{rt:2.2,collide:true});
+    const leaf=lambert({color:0x3f9d5a});
+    const bush=new THREE.Mesh(new THREE.SphereGeometry(1.7,8,6),leaf);
+    bush.position.set(px,6.5,pz); mapGroup.add(bush); samplables.push(bush);
+    addMeshCollider(bush,0.04);
+  }
+
+  // 스폰 지점 (지우개: 테이블 밑·주방 구석·배식대 옆 등 분산)
+  hiderSpawns=[[-38,-16],[0,-16],[38,-16],[-38,10],[0,10],[38,10],[-38,36],[0,36],[38,36],
+               [-48,0],[48,-30],[48,-4],[-20,32],[20,-30],[-10,-30],[10,20],[-48,30],
+               [30,45],[-30,45],[0,45]].map(p=>new THREE.Vector3(p[0],0,p[1]));
+}
+
+/* ================= 맵 레지스트리 & 전환 ================= */
+const MAPS={
+  classroom:{label:"🏫 교실",build:buildClassroomMap,w:ROOM_W,d:ROOM_D,h:WALL_H},
+  gym:{label:"🤸 체육관",build:buildGymMap,w:GYM_W,d:GYM_D,h:GYM_H},
+  cafeteria:{label:"🍽️ 급식실",build:buildCafeteriaMap,w:CAF_W,d:CAF_D,h:CAF_H}
+};
+let currentMapId="classroom";
+let MAP_W=ROOM_W, MAP_D=ROOM_D, MAP_H=WALL_H; // 현재 맵의 이동 가능 범위 — 맵마다 크기가 달라 이동/카메라 코드는 이 값을 씁니다
+function clearMap(){
+  for(let i=mapGroup.children.length-1;i>=0;i--){
+    const obj=mapGroup.children[i];
+    mapGroup.remove(obj);
+    if(obj.geometry)obj.geometry.dispose();
+    if(obj.material){ (Array.isArray(obj.material)?obj.material:[obj.material]).forEach(m=>m.dispose()); }
+  }
+  colliders.length=0; samplables.length=0; refillZones.length=0; hiderSpawns=[];
+}
+function loadMap(id){
+  if(!MAPS[id])id="classroom";
+  clearMap();
+  currentMapId=id;
+  MAP_W=MAPS[id].w; MAP_D=MAPS[id].d; MAP_H=MAPS[id].h;
+  MAPS[id].build();
 }
 
 /* ================= 캐릭터: 지우개 (UV 아틀라스 256) ================= */
@@ -1322,7 +1665,7 @@ function updateThirdPersonCamera(){
   _camLook.copy(_camTarget)
     .addScaledVector(_camForward,4)
     .add(new THREE.Vector3(0,Math.tan(G.pitch)*2.4,0));
-  camera.position.y=Math.min(camera.position.y,WALL_H-0.15);
+  camera.position.y=Math.min(camera.position.y,MAP_H-0.15);
   camera.up.set(0,1,0);
   camera.lookAt(_camLook);
 
@@ -1352,9 +1695,9 @@ function toggleSpectatorMode(force){
     G.specAnchorPose=G.pose;
     G.spectating=true;
     G.specPos.copy(G.pos).add(new THREE.Vector3(0,2.2,2.6));
-    G.specPos.x=clamp(G.specPos.x,-ROOM_W/2+0.3,ROOM_W/2-0.3);
-    G.specPos.y=clamp(G.specPos.y,0.4,WALL_H-0.4);
-    G.specPos.z=clamp(G.specPos.z,-ROOM_D/2+0.3,ROOM_D/2-0.3);
+    G.specPos.x=clamp(G.specPos.x,-MAP_W/2+0.3,MAP_W/2-0.3);
+    G.specPos.y=clamp(G.specPos.y,0.4,MAP_H-0.4);
+    G.specPos.z=clamp(G.specPos.z,-MAP_D/2+0.3,MAP_D/2-0.3);
     $("paintPanel").classList.add("hidden");
     toast("👀 지우개는 숨은 자리에 그대로 있고, 카메라만 자유롭게 움직입니다.");
     if(!IS_TOUCH)renderer.domElement.requestPointerLock?.();
@@ -1411,9 +1754,9 @@ function poseFitsHere(pose,x=G.pos.x,y=G.pos.y,z=G.pos.z){
 }
 function enforceRoomBounds(){
   const {hx,hz,H}=playerDims();
-  G.pos.x=clamp(G.pos.x,-ROOM_W/2+hx+0.12,ROOM_W/2-hx-0.12);
-  G.pos.z=clamp(G.pos.z,-ROOM_D/2+hz+0.12,ROOM_D/2-hz-0.12);
-  G.pos.y=clamp(G.pos.y,0,Math.max(0,WALL_H-H-0.25));
+  G.pos.x=clamp(G.pos.x,-MAP_W/2+hx+0.12,MAP_W/2-hx-0.12);
+  G.pos.z=clamp(G.pos.z,-MAP_D/2+hz+0.12,MAP_D/2-hz-0.12);
+  G.pos.y=clamp(G.pos.y,0,Math.max(0,MAP_H-H-0.25));
 }
 const COLLISION_MOVE_STEP=0.16;
 
@@ -1514,7 +1857,7 @@ function toggleFlight(force){
   G.lastJumpTap=0;G.lastFlyDownTap=0;
   if(G.flying){
     G.vy=0;
-    G.pos.y=Math.min(G.pos.y+0.35,WALL_H-playerDims().H-0.3);
+    G.pos.y=Math.min(G.pos.y+0.35,MAP_H-playerDims().H-0.3);
     toast("✈️ 비행 모드! ↑ 상승 · ↓ 하강 · 위/아래 두 번 = 낙하");
   }else{
     G.vy=-4.5;
@@ -1573,9 +1916,9 @@ function updateMovement(dt){
     G.specPos.addScaledVector(dir,specSpeed*dt);
     const vertical=((keys["Space"]||G.flyUp)?1:0)-((keys["ShiftLeft"]||keys["ShiftRight"]||G.flyDown)?1:0);
     G.specPos.y+=vertical*specSpeed*0.75*dt;
-    G.specPos.x=clamp(G.specPos.x,-ROOM_W/2+0.3,ROOM_W/2-0.3);
-    G.specPos.y=clamp(G.specPos.y,0.35,WALL_H-0.35);
-    G.specPos.z=clamp(G.specPos.z,-ROOM_D/2+0.3,ROOM_D/2-0.3);
+    G.specPos.x=clamp(G.specPos.x,-MAP_W/2+0.3,MAP_W/2-0.3);
+    G.specPos.y=clamp(G.specPos.y,0.35,MAP_H-0.35);
+    G.specPos.z=clamp(G.specPos.z,-MAP_D/2+0.3,MAP_D/2-0.3);
     syncLocalFairy();
     camera.position.copy(G.specPos);
     camera.rotation.set(0,0,0);
@@ -1758,7 +2101,7 @@ function updateMirrorCamera(){
       camera.position.copy(_camTarget).addScaledVector(_camDir,Math.max(0.72,hits[0].distance-0.18));
     }else camera.position.copy(_camDesired);
   }
-  camera.position.y=clamp(camera.position.y,0.25,WALL_H-0.15);
+  camera.position.y=clamp(camera.position.y,0.25,MAP_H-0.15);
   camera.up.set(0,1,0);
   camera.lookAt(_camTarget);
 }
@@ -2282,7 +2625,8 @@ const Net={
       if(!s.exists())break;
     }
     this.code=code; G.code=code; G.isHost=true;
-    await set(ref(this.db,`rooms/${code}/meta`),{host:this.uid,phase:"LOBBY",phaseEndsAt:0,round:0});
+    await set(ref(this.db,`rooms/${code}/meta`),{host:this.uid,phase:"LOBBY",phaseEndsAt:0,round:0,mapId:currentMapId,
+      paintDurationSec:90,seekDurationSec:180,seekerCount:0});
     await set(ref(this.db,`rooms/${code}/players/${this.uid}`),
       {nick,role:"ghost",found:false,lastSeen:serverTimestamp()});
     await set(ref(this.db,`rooms/${code}/presence/${this.uid}`),{online:true,lastSeen:serverTimestamp()});
@@ -2317,8 +2661,13 @@ const Net={
     const {ref,set,update,serverTimestamp,onDisconnect,onValue,onChildAdded,onChildChanged,onChildRemoved}=this.fb;
     onValue(ref(this.db,`rooms/${this.code}/meta`),s=>{
       const m=s.val(); if(!m)return;
-      const prev=this.meta.phase; this.meta=m;
+      const prev=this.meta.phase; const hadMeta=!!this.meta.phase;
+      this.meta=m;
       G.phaseEndsAt=m.phaseEndsAt||0;
+      if(m.mapId&&m.mapId!==currentMapId&&(!hadMeta||m.phase==="LOBBY")){
+        loadMap(m.mapId); refreshLobbyGrid();
+      }
+      refreshRoomSettings();
       if(m.phase!==prev) onPhaseChange(m.phase,prev);
     });
     const pref=ref(this.db,`rooms/${this.code}/players`);
@@ -2468,7 +2817,8 @@ const Net={
     const now=this.now();
     if(m.phase==="PAINT"&&now>=m.phaseEndsAt){
       this.phaseAdvanceLock=true;
-      this.setPhase("SEEK",180000).finally(()=>{this.phaseAdvanceLock=false;});
+      const seekMs=(m.seekDurationSec||180)*1000;
+      this.setPhase("SEEK",seekMs).finally(()=>{this.phaseAdvanceLock=false;});
     }else if(m.phase==="SEEK"){
       const hiders=Object.entries(this.players).filter(([u,p])=>p.role==="hider");
       const allFound=hiders.length>0&&hiders.every(([u,p])=>p.found);
@@ -2514,7 +2864,10 @@ const Net={
         return false;
       }
 
-      const nSeek=clamp(Math.round(ids.length*0.15),1,Math.min(3,ids.length-1));
+      const configuredSeek=this.meta.seekerCount|0;
+      const nSeek=configuredSeek>0
+        ? clamp(configuredSeek,1,ids.length-1)
+        : clamp(Math.round(ids.length*0.15),1,Math.min(3,ids.length-1));
       const shuffled=[...ids].sort(()=>Math.random()-0.5);
       const seekers=new Set(shuffled.slice(0,nSeek));
       if(hostPlays&&!seekers.has(this.uid)){
@@ -2537,11 +2890,12 @@ const Net={
 
       // 2단계: 모든 클라이언트가 역할을 받은 뒤 숨기 페이즈를 시작합니다.
       await new Promise(resolve=>setTimeout(resolve,80));
+      const paintMs=(this.meta.paintDurationSec||90)*1000;
       await update(ref(this.db,`rooms/${this.code}/meta`),{
         round:(this.meta.round||0)+1,
         seekerIds:Object.fromEntries([...seekers].map(u=>[u,true])),
         phase:"PAINT",
-        phaseEndsAt:this.now()+90000,
+        phaseEndsAt:this.now()+paintMs,
         winner:null
       });
       return true;
@@ -2713,9 +3067,9 @@ function updateResultReveal(){
   const angle=localT*Math.PI*1.25-0.7;
   const target=new THREE.Vector3(p.x,p.y+0.75,p.z);
   camera.position.set(
-    clamp(p.x+Math.cos(angle)*3.2,-ROOM_W/2+0.4,ROOM_W/2-0.4),
-    Math.min(WALL_H-0.5,p.y+2.0),
-    clamp(p.z+Math.sin(angle)*3.2,-ROOM_D/2+0.4,ROOM_D/2-0.4)
+    clamp(p.x+Math.cos(angle)*3.2,-MAP_W/2+0.4,MAP_W/2-0.4),
+    Math.min(MAP_H-0.5,p.y+2.0),
+    clamp(p.z+Math.sin(angle)*3.2,-MAP_D/2+0.4,MAP_D/2-0.4)
   );
   camera.lookAt(target);
   if(item.uid===Net.uid){
@@ -2803,6 +3157,8 @@ $("deskHint").textContent="3인칭 이동 · WASD/방향키 · 마우스 시점 
 
 function refreshLobbyGrid(){
   if(G.screen!=="LOBBY"&&G.phase!=="LOBBY")return;
+  renderMapButtons();
+  syncRoomSettingsUI();
   const grid=$("playerGrid"); grid.innerHTML="";
   const now=Net.now?Net.now():Date.now();
   const entries=Object.entries(Net.players).filter(([u])=>{
@@ -2823,6 +3179,49 @@ function refreshLobbyGrid(){
   $("waitMsg").textContent=G.isHost?`${entries.length}명 실시간 접속 중`:"선생님이 시작하기를 기다리는 중...";
 }
 function escapeHtml(s){return String(s).replace(/[<>&"]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;"}[c]));}
+function renderMapButtons(){
+  const box=$("mapButtons"); if(!box)return;
+  const canPick=Net.mode!=="online"||G.isHost;
+  box.innerHTML="";
+  Object.keys(MAPS).forEach(id=>{
+    const b=document.createElement("button");
+    b.type="button";
+    b.className="secondary mapBtn"+(id===currentMapId?" active":"");
+    b.textContent=MAPS[id].label;
+    if(!canPick)b.disabled=true;
+    b.onclick=()=>{ if(!canPick)return; setMap(id); };
+    box.appendChild(b);
+  });
+}
+async function setMap(mapId){
+  if(!MAPS[mapId]||mapId===currentMapId)return;
+  if(Net.mode==="online"){
+    if(!G.isHost)return;
+    try{ await Net.fb.update(Net.fb.ref(Net.db,`rooms/${Net.code}/meta`),{mapId}); }
+    catch(err){ console.error("맵 변경 실패:",err); toast("맵을 바꾸지 못했어요"); }
+  }else{
+    loadMap(mapId); renderMapButtons();
+    toast(`🗺️ ${MAPS[mapId].label} 맵으로 바꿨어요`);
+  }
+}
+function syncRoomSettingsUI(){
+  const wrap=$("roomSettingsWrap"); if(!wrap||Net.mode!=="online")return;
+  wrap.classList.remove("hidden");
+  const m=Net.meta||{};
+  $("paintTimeSel").value=String(m.paintDurationSec||90);
+  $("seekTimeSel").value=String(m.seekDurationSec||180);
+  $("seekerCountSel").value=String(m.seekerCount||0);
+  [$("paintTimeSel"),$("seekTimeSel"),$("seekerCountSel")].forEach(el=>el.disabled=!G.isHost);
+  $("roomSettingsNote").textContent=G.isHost?"":"선생님이 설정한 시간/술래 인원이에요.";
+}
+async function updateRoomSetting(field,value){
+  if(!G.isHost||Net.mode!=="online")return;
+  try{ await Net.fb.update(Net.fb.ref(Net.db,`rooms/${Net.code}/meta`),{[field]:value}); }
+  catch(err){ console.error("설정 변경 실패:",err); toast("설정을 바꾸지 못했어요"); }
+}
+$("paintTimeSel").onchange=()=>updateRoomSetting("paintDurationSec",+$("paintTimeSel").value);
+$("seekTimeSel").onchange=()=>updateRoomSetting("seekDurationSec",+$("seekTimeSel").value);
+$("seekerCountSel").onchange=()=>updateRoomSetting("seekerCount",+$("seekerCountSel").value);
 function refreshIconRow(){
   const row=$("iconRow"); row.innerHTML="";
   if(Net.mode!=="online")return;
@@ -2897,6 +3296,12 @@ function getNick(){
 $("nickInput").value=localStorage.getItem("er_nick")||"";
 $("btnJoinOpen").onclick=()=>{ $("joinBox").classList.toggle("hidden");
   $("codeInput").value=localStorage.getItem("er_code")||""; };
+$("btnCycleMap").onclick=()=>{
+  const ids=Object.keys(MAPS);
+  const next=ids[(ids.indexOf(currentMapId)+1)%ids.length];
+  loadMap(next);
+  $("btnCycleMap").textContent=`🗺️ 연습 맵: ${MAPS[next].label.replace(/^\S+\s/,"")}`;
+};
 $("btnCreate").onclick=async()=>{
   Audio2.resume();
   const teacherCode=prompt("선생님 방 만들기 코드를 입력해 주세요.");
@@ -3094,7 +3499,7 @@ document.addEventListener("visibilitychange",()=>{
 });
 
 /* ================= 메인 루프 ================= */
-buildTextures(); buildMap(); buildPresets(); drawWheel(); drawVal(); drawRecent();
+buildTextures(); loadMap(currentMapId); buildPresets(); drawWheel(); drawVal(); drawRecent();
 setColor("#4A7FB5");
 showScreen("TITLE");
 let lastT=performance.now();
