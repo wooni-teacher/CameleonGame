@@ -2667,7 +2667,7 @@ const Net={
       if(m.mapId&&m.mapId!==currentMapId&&(!hadMeta||m.phase==="LOBBY")){
         loadMap(m.mapId); refreshLobbyGrid();
       }
-      refreshRoomSettings();
+      syncRoomSettingsUI();
       if(m.phase!==prev) onPhaseChange(m.phase,prev);
     });
     const pref=ref(this.db,`rooms/${this.code}/players`);
@@ -3219,9 +3219,9 @@ async function updateRoomSetting(field,value){
   try{ await Net.fb.update(Net.fb.ref(Net.db,`rooms/${Net.code}/meta`),{[field]:value}); }
   catch(err){ console.error("설정 변경 실패:",err); toast("설정을 바꾸지 못했어요"); }
 }
-$("paintTimeSel").onchange=()=>updateRoomSetting("paintDurationSec",+$("paintTimeSel").value);
-$("seekTimeSel").onchange=()=>updateRoomSetting("seekDurationSec",+$("seekTimeSel").value);
-$("seekerCountSel").onchange=()=>updateRoomSetting("seekerCount",+$("seekerCountSel").value);
+$("paintTimeSel")?.addEventListener("change",()=>updateRoomSetting("paintDurationSec",+$("paintTimeSel").value));
+$("seekTimeSel")?.addEventListener("change",()=>updateRoomSetting("seekDurationSec",+$("seekTimeSel").value));
+$("seekerCountSel")?.addEventListener("change",()=>updateRoomSetting("seekerCount",+$("seekerCountSel").value));
 function refreshIconRow(){
   const row=$("iconRow"); row.innerHTML="";
   if(Net.mode!=="online")return;
@@ -3440,7 +3440,15 @@ $("btnPracticeReturn").onclick=returnFromLobbyPractice;
 async function startRoundButton(btn){
   Audio2.resume();
   if(btn)btn.disabled=true;
-  try{await Net.startGame();}finally{if(btn)btn.disabled=false;}
+  try{
+    const ok=await Net.startGame();
+    if(ok===false)console.warn("게임 시작이 조건 미충족 등으로 진행되지 않았습니다 (위 토스트 참고).");
+  }catch(err){
+    console.error("게임 시작 버튼 처리 중 예외:",err);
+    toast("게임 시작 중 오류가 발생했어요: "+(err?.message||"알 수 없는 오류"));
+  }finally{
+    if(btn)btn.disabled=false;
+  }
 }
 $("btnStart").onclick=()=>startRoundButton($("btnStart"));
 $("btnNextRound").onclick=()=>{if(G.isHost)startRoundButton($("btnNextRound"));};
