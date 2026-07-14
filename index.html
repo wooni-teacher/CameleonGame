@@ -309,6 +309,11 @@ label.chk input{width:20px;height:20px;}
 #btnSpoit{width:60px;height:60px;right:26px;bottom:112px;}
 #btnMirror{width:70px;height:70px;right:104px;bottom:40px;}
 #btnJudge{width:100px;height:100px;right:18px;bottom:20px;background:rgba(245,197,24,.95);font-size:16px;}
+#btnBomb{width:104px;height:104px;right:132px;bottom:14px;background:rgba(255,106,61,.95);font-size:19px;
+  border-width:4px;box-shadow:3px 3px 0 rgba(0,0,0,.35);animation:bombPulse 1s ease-in-out infinite;}
+@keyframes bombPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}
+#btnRevive{width:96px;height:96px;right:18px;bottom:20px;background:rgba(126,203,95,.95);font-size:17px;
+  border-width:4px;box-shadow:3px 3px 0 rgba(0,0,0,.35);animation:bombPulse 0.8s ease-in-out infinite;}
 #btnFlyDown{width:66px;height:66px;right:22px;bottom:26px;}
 /* 비행 중에는 상승·하강을 한 열에 두고 스포이트·색칠 버튼은 옆 열로 분리합니다. */
 #mobileUI.flyingControls #btnJump{right:18px;bottom:184px;}
@@ -455,15 +460,24 @@ if (typeof window.TEACHER_CODE === "undefined" || !window.TEACHER_CODE) window.T
     </div>
 
     <div id="settingsBox" class="settingsBox">
-      <div class="settingsRow">
-        <label>🙈 숨는 시간</label>
-        <input type="range" id="paintSecSlider" min="30" max="180" step="10" value="60">
-        <span id="paintSecVal" class="settingsVal">1분</span>
+      <div id="hideSeekSettingsBox">
+        <div class="settingsRow">
+          <label>🙈 숨는 시간</label>
+          <input type="range" id="paintSecSlider" min="30" max="180" step="10" value="60">
+          <span id="paintSecVal" class="settingsVal">1분</span>
+        </div>
+        <div class="settingsRow">
+          <label>🔍 찾는 시간</label>
+          <input type="range" id="seekSecSlider" min="60" max="300" step="10" value="180">
+          <span id="seekSecVal" class="settingsVal">3분</span>
+        </div>
       </div>
-      <div class="settingsRow">
-        <label>🔍 찾는 시간</label>
-        <input type="range" id="seekSecSlider" min="60" max="300" step="10" value="180">
-        <span id="seekSecVal" class="settingsVal">3분</span>
+      <div id="chaseSettingsBox" class="hidden">
+        <div class="settingsRow">
+          <label>🏃 추격 시간</label>
+          <input type="range" id="chaseSecSlider" min="60" max="600" step="10" value="180">
+          <span id="chaseSecVal" class="settingsVal">3분</span>
+        </div>
       </div>
     </div>
 
@@ -658,6 +672,7 @@ if (typeof window.TEACHER_CODE === "undefined" || !window.TEACHER_CODE) window.T
   <div class="mbtn" id="btnMirror">🎨<br>색칠 모드</div>
   <div class="mbtn hidden" id="btnJudge">콕<br>찍기!</div>
   <div class="mbtn hidden" id="btnBomb">💣<br>던지기</div>
+  <div class="mbtn hidden" id="btnRevive">💉<br>부활!</div>
   <div class="mbtn hidden" id="btnFlyDown" aria-label="하강" title="하강">↓</div>
   <div class="poseCol">
     <div class="mbtn" data-pose="stand">서기</div>
@@ -2522,6 +2537,10 @@ function setFairyFound(f){
   f.parts.forEach(p=>{ p.material=lambert({color:0x6a6f76,transparent:true,opacity:0.4}); });
   if(f.hitbox)f.hitbox.userData.taggable=false;
 }
+function clearFairyFound(f){ // v4: 부활 — 위장 텍스처 재질을 원래대로 되돌립니다.
+  f.parts.forEach(p=>{ p.material=f.mat; });
+  if(f.hitbox)f.hitbox.userData.taggable=true;
+}
 
 /* ================= 파티클 / 연출 ================= */
 const dotTex=(()=>{const c=document.createElement("canvas");c.width=32;c.height=32;
@@ -2969,6 +2988,7 @@ function moveVertical(delta,ignoreAssets=false){
 }
 function toggleFlight(force){
   if(G.role==="ghost")return;
+  if(G.isChaseRound&&!G.flying){ toast("🏃 추격전에서는 날 수 없어요!"); return; }
   G.flying=typeof force==="boolean"?force:!G.flying;
   G.jumpReq=false;G.grounded=false;G.flyUp=false;G.flyDown=false;
   G.lastJumpTap=0;G.lastFlyDownTap=0;
@@ -3066,7 +3086,6 @@ async function updateChaseItemPickups(){
   if(!G.isChaseRound||G.phase!=="SEEK"||G.role==="ghost"||G.found)return;
   for(const {group,idx,type} of chaseItemMeshes){
     if(!group.visible)continue;
-    if(type==="speed"&&G.role!=="hider")continue;
     if(type==="bomb"&&G.role!=="seeker")continue;
     const dx=G.pos.x-group.position.x, dz=G.pos.z-group.position.z;
     if(dx*dx+dz*dz>ITEM_PICKUP_R*ITEM_PICKUP_R)continue;
@@ -3133,6 +3152,37 @@ function currentSpeedMultiplier(){
   if(G.speedBoostUntil>now)m*=SPEED_MULT;
   if(G.slowUntil>now)m*=BOMB_SLOW_MULT;
   return m;
+}
+/* ================= v4: 부활 지우개 — 쓰러진 동료 되살리기 ================= */
+const REVIVE_RADIUS=2.4;
+let reviveTargetUid=null;
+let _reviveHinted=false;
+function updateReviveCheck(){
+  const prevTarget=reviveTargetUid;
+  reviveTargetUid=null;
+  if(G.screen!=="GAME"||G.role!=="hider"||G.found||G.phase!=="SEEK")return;
+  if(!(Net.mode==="online"&&Net.meta.medicId===Net.uid))return;
+  let best=null,bestD=REVIVE_RADIUS*REVIVE_RADIUS;
+  remotes.forEach((r,uid)=>{
+    if(r.info.role!=="hider"||!r.info.found)return;
+    const dx=G.pos.x-r.fairy.group.position.x, dz=G.pos.z-r.fairy.group.position.z;
+    const d2=dx*dx+dz*dz;
+    if(d2<bestD){bestD=d2;best=uid;}
+  });
+  reviveTargetUid=best;
+  if(IS_TOUCH)$("btnRevive").classList.toggle("hidden",!reviveTargetUid);
+  if(reviveTargetUid&&!prevTarget&&!_reviveHinted){
+    _reviveHinted=true;
+    toast(IS_TOUCH?"💉 근처에 쓰러진 친구가 있어요! 부활 버튼을 눌러요":"💉 근처에 쓰러진 친구가 있어요! E키로 부활시켜요");
+  }
+  if(!reviveTargetUid)_reviveHinted=false;
+}
+async function tryRevive(){
+  if(!reviveTargetUid)return;
+  const uid=reviveTargetUid;
+  Audio2.resume();
+  const ok=await Net.revivePlayer(uid);
+  if(!ok)toast("😅 부활에 실패했어요. 다시 시도해 주세요");
 }
 function updateMovement(dt){
   const ghost=G.role==="ghost";
@@ -3435,6 +3485,8 @@ $("panelToggle").onclick=()=>{
 /* ================= 술래 판정 ================= */
 // 술래 사정거리: 조금 떨어져 있어도 잡을 수 있도록 넉넉하게 잡습니다. (2칸 더 늘림)
 const JUDGE_RANGE=13;
+function currentJudgeRange(){ return G.isChaseRound?17:JUDGE_RANGE; }
+function currentJudgeTolerance(){ return G.isChaseRound?1.5:0.8; }
 const judgeRay=new THREE.Raycaster();
 const occlusionRay=new THREE.Raycaster();
 const _judgeCenter=new THREE.Vector3();
@@ -3464,7 +3516,7 @@ async function tryJudge(cx,cy){
   if(cx!=null&&cy!=null){ judgeRay.setFromCamera(screenToNDC(cx,cy),camera); }
   else{ judgeRay.setFromCamera(ndc.set(0,0),camera); }
   judgeRay.near=0.05;
-  judgeRay.far=JUDGE_RANGE;
+  judgeRay.far=currentJudgeRange();
 
   const targets=[];
   remotes.forEach((r,uid)=>{
@@ -3484,7 +3536,7 @@ async function tryJudge(cx,cy){
   // 1차: 중앙 조준선이 넓어진 전용 히트박스에 직접 닿는 경우
   const hits=judgeRay.intersectObjects(targets,false);
   for(const hit of hits){
-    if(hit.distance>JUDGE_RANGE)continue;
+    if(hit.distance>currentJudgeRange())continue;
     if(isJudgeBlocked(hit.point,hit.distance))continue;
     selectedUid=hit.object.userData.uid;
     selectedPoint=hit.point.clone();
@@ -3501,12 +3553,12 @@ async function tryJudge(cx,cy){
       r.fairy.hitbox.getWorldPosition(_judgeCenter);
       _judgeToTarget.copy(_judgeCenter).sub(camera.position);
       const distance=_judgeToTarget.length();
-      if(distance<=0.05||distance>JUDGE_RANGE)return;
+      if(distance<=0.05||distance>currentJudgeRange())return;
 
       _judgeToTarget.normalize();
       const dot=clamp(_judgeToTarget.dot(judgeRay.ray.direction),-1,1);
       const angle=Math.acos(dot);
-      const allowedAngle=Math.atan2(0.8,distance)+0.045;
+      const allowedAngle=Math.atan2(currentJudgeTolerance(),distance)+0.045;
       if(angle>allowedAngle)return;
       if(isJudgeBlocked(_judgeCenter,distance))return;
 
@@ -3573,6 +3625,7 @@ addEventListener("keydown",e=>{
   if(e.code==="Digit3")setPose("lean");
   if(e.code==="Digit4")setPose("sit");
   if(e.code==="KeyB")throwBomb();
+  if(e.code==="KeyE")tryRevive();
   if(e.code==="KeyM")Audio2.toggleMute();
 });
 addEventListener("keyup",e=>{
@@ -3685,6 +3738,7 @@ function updateMobileButtons(){
   $("btnMirror").classList.toggle("hidden",!hidePaint||G.mirror);
   document.querySelectorAll(".poseCol .mbtn").forEach(b=>b.classList.toggle("hidden",G.role==="seeker"||G.role==="ghost"||G.mirror||G.spectating));
   $("btnBomb").classList.toggle("hidden",!(G.isChaseRound&&G.role==="seeker"&&G.phase==="SEEK"&&G.hasBomb));
+  $("btnRevive").classList.toggle("hidden",!reviveTargetUid);
   updateSpectatorButton();
 }
 renderer.domElement.addEventListener("pointerdown",e=>{
@@ -3776,6 +3830,7 @@ $("btnJump").addEventListener("lostpointercapture",releaseFlightButton);
 $("btnFlyDown").addEventListener("lostpointercapture",releaseFlightButton);
 $("btnJudge").onpointerdown=()=>{tryJudge();Audio2.resume();};
 $("btnBomb").onpointerdown=()=>{Audio2.resume();throwBomb();};
+$("btnRevive").onpointerdown=()=>{Audio2.resume();tryRevive();};
 $("btnMirror").onpointerdown=()=>{setMirror(true);Audio2.resume();};
 $("btnMirrorDone").onpointerdown=()=>setMirror(false);
 $("btnSpoit").onpointerdown=e=>{
@@ -3932,7 +3987,7 @@ const Net={
       set(ref(this.db,`rooms/${code}/kicks`),null),
     ]);
     await set(ref(this.db,`rooms/${code}/meta`),{host:this.uid,phase:"LOBBY",phaseEndsAt:0,round:0,
-      settings:{paintSec:60,seekSec:180},hostRole:"spectator",manualSeekers:null,mapId:"classroom",mode:"hide"});
+      settings:{paintSec:60,seekSec:180,chaseSec:180},hostRole:"spectator",manualSeekers:null,mapId:"classroom",mode:"hide"});
     await set(ref(this.db,`rooms/${code}/players/${this.uid}`),
       {nick,role:"ghost",found:false,lastSeen:serverTimestamp()});
     await set(ref(this.db,`rooms/${code}/presence/${this.uid}`),{online:true,lastSeen:serverTimestamp()});
@@ -4005,6 +4060,7 @@ const Net={
       this.players[s.key]=after;
       ensureRemote(s.key,after);
       if(!before.found&&after.found) onSomeoneFound(s.key,after);
+      else if(before.found&&!after.found) onSomeoneRevived(s.key,after);
       onPlayersChange(s.key,"change");
     });
     onChildRemoved(pref,s=>{
@@ -4201,10 +4257,32 @@ const Net={
       return false;
     }
   },
+  async revivePlayer(uid){ // v4: 부활 지우개 전용 — 쓰러진 동료를 되살립니다.
+    if(this.mode!=="online"||this.meta.medicId!==this.uid)return false;
+    const {ref,runTransaction}=this.fb;
+    try{
+      const res=await runTransaction(
+        ref(this.db,`rooms/${this.code}/players/${uid}/found`),
+        cur=>cur===true?false:undefined
+      );
+      if(res.committed){
+        await this.fb.update(
+          ref(this.db,`rooms/${this.code}/players/${uid}`),
+          {foundAt:null,foundBy:null}
+        );
+        return true;
+      }
+      return false;
+    }catch(err){
+      console.error("부활 전송 실패:",err);
+      toast("⚠️ 부활 전송 실패: 연결을 확인해 주세요");
+      return false;
+    }
+  },
   /* ── v2: 로비 설정 (방장 전용) ── */
   updateSettings(patch){
     if(!G.isHost||this.mode!=="online")return;
-    const settings=Object.assign({paintSec:60,seekSec:180},this.meta.settings||{},patch);
+    const settings=Object.assign({paintSec:60,seekSec:180,chaseSec:180},this.meta.settings||{},patch);
     this.fb.update(this.fb.ref(this.db,`rooms/${this.code}/meta/settings`),settings).catch(()=>{});
   },
   toggleManualSeeker(uid){
@@ -4321,13 +4399,13 @@ const Net={
     if(!G.isHost||this.mode!=="online"||this.phaseAdvanceLock)return;
     const m=this.meta;if(!m.phase)return;
     const now=this.now();
-    const settings=m.settings||{paintSec:60,seekSec:180};
+    const settings=m.settings||{paintSec:60,seekSec:180,chaseSec:180};
     if(m.phase==="ROULETTE"&&m.roulette){
       const total=(m.roulette.startAt||now)+(m.roulette.perMs||1400)*((m.roulette.final||[]).length)+900;
       if(now>=total){
         this.phaseAdvanceLock=true;
         const isChase=m.mode==="chase"&&m.mapId==="corridor";
-        if(isChase)this.setPhase("SEEK",(settings.seekSec||180)*1000).finally(()=>{this.phaseAdvanceLock=false;});
+        if(isChase)this.setPhase("SEEK",(settings.chaseSec||180)*1000).finally(()=>{this.phaseAdvanceLock=false;});
         else this.setPhase("PAINT",(settings.paintSec||60)*1000).finally(()=>{this.phaseAdvanceLock=false;});
       }
     }else if(m.phase==="PAINT"&&now>=m.phaseEndsAt){
@@ -4408,6 +4486,9 @@ const Net={
         return false;
       }
       const seekerOrder=[...seekers];
+      // v4: 지우개 중 한 명을 무작위로 "부활 지우개(의사)"로 뽑습니다 — 쓰러진 동료를 되살릴 수 있어요.
+      const hiderPool=ids.filter(u=>!seekers.has(u));
+      const medicId=hiderPool.length?hiderPool[Math.floor(Math.random()*hiderPool.length)]:null;
 
       // 1단계: 역할을 먼저 확정합니다. 술래가 지우개로 잠깐 스폰되는 경쟁 상태를 막습니다.
       const roleUpd={};
@@ -4425,12 +4506,13 @@ const Net={
 
       // 2단계: 모든 클라이언트가 역할을 받은 뒤 페이즈를 시작합니다.
       await new Promise(resolve=>setTimeout(resolve,80));
-      const settings=this.meta.settings||{paintSec:60,seekSec:180};
+      const settings=this.meta.settings||{paintSec:60,seekSec:180,chaseSec:180};
       const isChase=this.meta.mode==="chase"&&this.meta.mapId==="corridor";
       const metaPatch={
         round:(this.meta.round||0)+1,
         seekerIds:Object.fromEntries(seekerOrder.map(u=>[u,true])),
         seekerOrder,
+        medicId,   // v4: 부활 지우개
         winner:null,
         frozen:false   // v2: 새 라운드 시작 시 얼음 해제
       };
@@ -4445,7 +4527,7 @@ const Net={
         metaPatch.roulette={candidates:ids,startAt:this.now()+150,perMs:1400,final:seekerOrder};
       }else if(isChase){
         metaPatch.phase="SEEK";
-        metaPatch.phaseEndsAt=this.now()+(settings.seekSec||180)*1000;
+        metaPatch.phaseEndsAt=this.now()+(settings.chaseSec||180)*1000;
         metaPatch.roulette=null;
       }else{
         metaPatch.phase="PAINT";
@@ -4549,7 +4631,9 @@ function enterPaint(){
   if(G.role==="hider"){
     const idx=Math.abs(hashUid(Net.uid||"p"))%hiderSpawns.length;
     G.pos.copy(hiderSpawns[idx]); G.vy=0;
-    showRoleCard("🧼 당신은 지우개!","몸에 물감을 칠하고 교실에 숨자!");
+    const isMedic=Net.mode==="online"&&Net.meta.medicId===Net.uid;
+    showRoleCard(isMedic?"💉 당신은 부활 지우개!":"🧼 당신은 지우개!",
+      isMedic?"몸에 물감을 칠하고 숨자! 들킨 친구 근처에 가면 되살릴 수 있어요!":"몸에 물감을 칠하고 교실에 숨자!");
     $("paintPanel").classList.remove("hidden");
     $("blockOverlay").classList.add("hidden");
     stopCaseGame();
@@ -4614,8 +4698,9 @@ function enterSeek(prev){
       G.pos.copy(hiderSpawns[idx]); G.vy=0; G.pose="stand";
       G.joinedMidgame=false;
     }
-    showRoleCard(G.isChaseRound?"🏃 추격전 시작!":"🤫 들키지 마!",
-      G.isChaseRound?"⚡ 아이템을 먹으면 잠깐 빨라져요! 술래를 피해 도망가자!":"게임 도중 합류! 얼른 숨을 곳을 찾자!");
+    const isMedic=Net.mode==="online"&&Net.meta.medicId===Net.uid;
+    showRoleCard(G.isChaseRound?(isMedic?"💉 부활 지우개 + 추격전!":"🏃 추격전 시작!"):"🤫 들키지 마!",
+      G.isChaseRound?(isMedic?"⚡속도 물약 먹고 도망치면서, 잡힌 친구 근처에 가면 되살릴 수 있어요!":"⚡ 아이템을 먹으면 잠깐 빨라져요! 술래를 피해 도망가자!"):"게임 도중 합류! 얼른 숨을 곳을 찾자!");
   }
   $("phaseLabel").textContent=G.isChaseRound?"🏃 추격전 진행 중!":"🔍 술래가 찾는 중!";
   Music.start("SEEK"); Music.up=false;
@@ -4769,6 +4854,19 @@ function onSomeoneFound(uid,p){
   foundLog.unshift(p.nick||"?"); if(foundLog.length>5)foundLog.length=5;
   refreshIconRow();
 }
+function onSomeoneRevived(uid,p){ // v4: 부활 지우개가 되살린 순간
+  const r=remotes.get(uid);
+  if(r){ r.foundApplied=false; clearFairyFound(r.fairy); }
+  if(uid===Net.uid){
+    G.found=false; G.role="hider"; G.pose="stand";
+    syncLocalFairy(); updateSpectatorButton(); updateMobileButtons();
+    showRoleCard("💉 부활했다!","다시 숨자! 들키지 않도록 조심해요!");
+    Audio2.sfxRefill();
+  }
+  burst((r?r.fairy.group.position.clone():G.pos.clone()).add(new THREE.Vector3(0,1,0)),"#7ecb5f",14,3.8,0.55,true,0.7);
+  toast(`💉 ${p.nick||"?"} 부활!`);
+  refreshIconRow();
+}
 function onPlayersChange(){ refreshLobbyGrid(); refreshIconRow(); }
 /* v3: 선생님(호스트) 노드가 잠깐 사라져도 반 전체를 튕기지 않습니다.
    15초 유예 동안 학생은 계속 플레이하고(게임 상태는 서버에 있음),
@@ -4849,15 +4947,21 @@ function refreshLobbyGrid(){
 /* v2: 게임 설정 슬라이더 표시/동기화 */
 function fmtMinSec(sec){ const m=Math.floor(sec/60),s=sec%60; return s?`${m}분 ${s}초`:`${m}분`; }
 function refreshLobbySettingsUI(){
-  const settings=Object.assign({paintSec:60,seekSec:180},Net.meta.settings||{});
+  const settings=Object.assign({paintSec:60,seekSec:180,chaseSec:180},Net.meta.settings||{});
   const box=$("settingsBox");
   box.classList.toggle("readonly",!G.isHost);
+  const isChaseMode=(Net.meta.mapId==="corridor")&&(Net.meta.mode==="chase");
+  $("hideSeekSettingsBox").classList.toggle("hidden",isChaseMode);
+  $("chaseSettingsBox").classList.toggle("hidden",!isChaseMode);
   if(document.activeElement!==$("paintSecSlider")){ $("paintSecSlider").value=settings.paintSec; }
   if(document.activeElement!==$("seekSecSlider")){ $("seekSecSlider").value=settings.seekSec; }
+  if(document.activeElement!==$("chaseSecSlider")){ $("chaseSecSlider").value=settings.chaseSec; }
   $("paintSecSlider").disabled=!G.isHost;
   $("seekSecSlider").disabled=!G.isHost;
+  $("chaseSecSlider").disabled=!G.isHost;
   $("paintSecVal").textContent=fmtMinSec(+$("paintSecSlider").value);
   $("seekSecVal").textContent=fmtMinSec(+$("seekSecSlider").value);
+  $("chaseSecVal").textContent=fmtMinSec(+$("chaseSecSlider").value);
   $("hostRoleBox").classList.toggle("hidden",!G.isHost);
   const hostRole=Net.meta.hostRole||"spectator";
   document.querySelectorAll(".hostRoleBtn").forEach(b=>b.classList.toggle("on",b.dataset.role===hostRole));
@@ -4869,6 +4973,10 @@ $("paintSecSlider").addEventListener("input",e=>{
 $("seekSecSlider").addEventListener("input",e=>{
   $("seekSecVal").textContent=fmtMinSec(+e.target.value);
   if(G.isHost)Net.updateSettings({seekSec:+e.target.value});
+});
+$("chaseSecSlider").addEventListener("input",e=>{
+  $("chaseSecVal").textContent=fmtMinSec(+e.target.value);
+  if(G.isHost)Net.updateSettings({chaseSec:+e.target.value});
 });
 document.querySelectorAll(".hostRoleBtn").forEach(b=>b.onclick=()=>{
   Audio2.resume();
@@ -5092,7 +5200,7 @@ $("qrZoomOverlay").onclick=e=>{if(e.target===$("qrZoomOverlay"))closeQRZoom();};
 function resetLobbyForNewRound(){
   if(!G.isHost||Net.mode!=="online")return;
   Net.fb.update(Net.fb.ref(Net.db,`rooms/${Net.code}/meta`),
-    {settings:{paintSec:60,seekSec:180},manualSeekers:null}).catch(()=>{});
+    {settings:{paintSec:60,seekSec:180,chaseSec:180},manualSeekers:null}).catch(()=>{});
 }
 /* v2: 게임 도중 입장(재입장 포함) — 로비를 거치지 않고 곧바로 지우개(요정)로 참여시킵니다.
    튕겨 나갔던 학생이 다시 들어오면 진행 중인 라운드에 바로 합류할 수 있어요. */
@@ -5592,6 +5700,7 @@ function loop(){
     checkEmbedded(dt);
     updateRemotes(dt);updateParticles(dt);updatePencil(dt);updateHUD();
     if(G.isChaseRound)chaseItemMeshes.forEach(({group})=>{ if(group.visible&&group.userData.spin)group.userData.spin.rotation.y+=dt*2.2; });
+    updateReviveCheck();
   }else if(G.screen==="RESULT"){
     updateRemotes(dt);updateParticles(dt);updateResultReveal();
   }else if(G.screen==="ROULETTE"){
