@@ -452,7 +452,7 @@ if (typeof window.TEACHER_CODE === "undefined" || !window.TEACHER_CODE) window.T
     </div>
     <div id="mapCardBox" class="mapCardBox"></div>
     <div id="modeBox" class="hidden" style="margin-top:10px;text-align:center;">
-      <div class="note" style="margin-bottom:4px;">🎮 게임 모드 (복도+신발장 맵 전용)</div>
+      <div class="note" style="margin-bottom:4px;">🎮 게임 모드 (복도+신발장 · 운동장 맵 전용)</div>
       <div class="row" style="justify-content:center;gap:8px;">
         <button type="button" class="secondary mapBtn" id="modeHideBtn">🙈 숨바꼭질</button>
         <button type="button" class="secondary mapBtn" id="modeChaseBtn">🏃 추격전</button>
@@ -2038,15 +2038,39 @@ function cartCleanup(){ Carts=[]; }
 /* 현재 맵에 맞는 기믹만 호출. 다른 맵엔 어떤 영향도 주지 않도록 정리 함수 병행. */
 /* ================= v4: 복도+신발장 맵 (40 × 220, 추격전 전용) ================= */
 const CORR_W=40, CORR_D=220, CORR_H=38;
-const CHASE_ITEMS=[
+// v4: 추격전 가능 맵 목록 — 복도(전용) + 운동장
+const CHASE_CAPABLE_MAPS=new Set(["corridor","playground"]);
+const CHASE_ITEMS_CORRIDOR=[
   {type:"speed",x:-14,y:0.9,z:-90},{type:"speed",x:14,y:0.9,z:-50},
   {type:"speed",x:-14,y:0.9,z:0},  {type:"speed",x:14,y:0.9,z:50},
   {type:"speed",x:-14,y:0.9,z:90},
   {type:"bomb", x:14,y:0.9,z:-90}, {type:"bomb",x:-14,y:0.9,z:30},{type:"bomb",x:14,y:0.9,z:70},
 ];
+const CHASE_ITEMS_PLAYGROUND=[
+  {type:"speed",x:0,y:0.9,z:-10}, {type:"speed",x:40,y:0.9,z:40},
+  {type:"speed",x:-40,y:0.9,z:-10},{type:"speed",x:50,y:0.9,z:-55},
+  {type:"speed",x:-50,y:0.9,z:60},
+  {type:"bomb", x:20,y:0.9,z:50}, {type:"bomb",x:-60,y:0.9,z:0},{type:"bomb",x:0,y:0.9,z:30},
+];
+function chaseItemsForMap(mapId){ return mapId==="playground"?CHASE_ITEMS_PLAYGROUND:CHASE_ITEMS_CORRIDOR; }
 const chaseItemMeshes=[];
-function buildCorridorMap(){
+function spawnChaseItemMeshes(items){
   chaseItemMeshes.length=0;
+  items.forEach((it,idx)=>{
+    const g=new THREE.Group(); g.position.set(it.x,it.y,it.z);
+    if(it.type==="speed"){
+      const gem=new THREE.Mesh(new THREE.OctahedronGeometry(0.55),new THREE.MeshLambertMaterial({color:0xffd23f,emissive:0x996600,emissiveIntensity:0.4}));
+      g.add(gem); g.userData.spin=gem;
+    }else{
+      const body=new THREE.Mesh(new THREE.SphereGeometry(0.5,10,8),new THREE.MeshLambertMaterial({color:0x2b2b2b}));
+      const fuse=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.35,6),new THREE.MeshLambertMaterial({color:0x8a5a33}));
+      fuse.position.y=0.5; body.add(fuse); g.add(body); g.userData.spin=body;
+    }
+    g.visible=false; mapRoot.add(g);
+    chaseItemMeshes.push({group:g,idx,type:it.type});
+  });
+}
+function buildCorridorMap(){
   const floor=new THREE.Mesh(new THREE.PlaneGeometry(CORR_W,CORR_D),lambert({map:TEX.corrFloor}));
   floor.rotation.x=-Math.PI/2; mapRoot.add(floor); samplables.push(floor);
   const ceil=new THREE.Mesh(new THREE.PlaneGeometry(CORR_W,CORR_D),lambert({color:0xf3f3ee}));
@@ -2126,19 +2150,7 @@ function buildCorridorMap(){
     new THREE.Vector3(10,0,-40));
 
   // ── 추격전 아이템 표시 (평소엔 숨겨져 있다가, 추격전 모드일 때만 보이게 합니다) ──
-  CHASE_ITEMS.forEach((it,idx)=>{
-    const g=new THREE.Group(); g.position.set(it.x,it.y,it.z);
-    if(it.type==="speed"){
-      const gem=new THREE.Mesh(new THREE.OctahedronGeometry(0.55),new THREE.MeshLambertMaterial({color:0xffd23f,emissive:0x996600,emissiveIntensity:0.4}));
-      g.add(gem); g.userData.spin=gem;
-    }else{
-      const body=new THREE.Mesh(new THREE.SphereGeometry(0.5,10,8),new THREE.MeshLambertMaterial({color:0x2b2b2b}));
-      const fuse=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.35,6),new THREE.MeshLambertMaterial({color:0x8a5a33}));
-      fuse.position.y=0.5; body.add(fuse); g.add(body); g.userData.spin=body;
-    }
-    g.visible=false; mapRoot.add(g);
-    chaseItemMeshes.push({group:g,idx,type:it.type});
-  });
+  spawnChaseItemMeshes(CHASE_ITEMS_CORRIDOR);
 }
 
 /* ================= v4: 운동장 맵 (170 × 170, 야외) ================= */
@@ -2216,6 +2228,9 @@ function buildPlaygroundMap(){
   hiderSpawns=[[-44,-40],[-20,-15],[30,-20],[30,-40],[-70,30],[70,30],[-56,50],[-40,55],
                [55,-40],[45,-50],[-60,-55],[0,-55],[60,55],[-15,50],[10,60],[-10,60],
                [-30,10],[-22,10],[0,0],[15,-5]].map(p=>new THREE.Vector3(p[0],0,p[1]));
+
+  // ── 추격전 아이템 표시 (운동장에서도 추격전 가능) ──
+  spawnChaseItemMeshes(CHASE_ITEMS_PLAYGROUND);
 }
 
 function updateMapGimmicks(dt){
@@ -2377,6 +2392,22 @@ function makeFairyNameLabel(){
   sprite.userData.labelText="";
   return sprite;
 }
+function makeMedicBadge(){ // v4: 부활 지우개 공개 표시(1분 남았을 때부터 모두에게 보임)
+  const canvas=document.createElement("canvas");
+  canvas.width=96;canvas.height=96;
+  const g=canvas.getContext("2d");
+  g.font="72px sans-serif"; g.textAlign="center"; g.textBaseline="middle";
+  g.fillText("💉",48,52);
+  const texture=new THREE.CanvasTexture(canvas);
+  texture.colorSpace=THREE.SRGBColorSpace;
+  const material=new THREE.SpriteMaterial({map:texture,transparent:true,depthWrite:false,depthTest:true});
+  const sprite=new THREE.Sprite(material);
+  sprite.position.set(0,2.25,0);
+  sprite.scale.set(0.62,0.62,1);
+  sprite.visible=false;
+  sprite.renderOrder=13;
+  return sprite;
+}
 function setFairyNameLabel(sprite,name){
   if(!sprite)return;
   const safe=String(name||"지우개").slice(0,10);
@@ -2477,6 +2508,9 @@ function buildFairy(canvas,isPencil=false){
   // 자유 구경 모드에서만 보이는 닉네임 이름표
   const nameLabel=makeFairyNameLabel();
   group.add(nameLabel);
+  // v4: 부활 지우개 공개 표시(1분 남았을 때부터)
+  const medicBadge=makeMedicBadge();
+  group.add(medicBadge);
 
   // 발밑 그림자
   const shTex=canvasTex(64,64,(g)=>{const gr=g.createRadialGradient(32,32,4,32,32,30);
@@ -2486,7 +2520,7 @@ function buildFairy(canvas,isPencil=false){
     new THREE.MeshBasicMaterial({map:shTex,transparent:true,depthWrite:false}));
   sh.rotation.x=-Math.PI/2; sh.position.y=0.02; sh.visible=false;
   // 위장 플레이에서 위치가 드러나지 않도록 캐릭터 그림자는 씬에 추가하지 않습니다.
-  return {group,parts,tex,mat,canvas,bodyM,arms:[aL,aR],legs:[lL,lR],shadow:sh,hitbox,nameLabel,walkPhase:Math.random()*Math.PI*2};
+  return {group,parts,tex,mat,canvas,bodyM,arms:[aL,aR],legs:[lL,lR],shadow:sh,hitbox,nameLabel,medicBadge,walkPhase:Math.random()*Math.PI*2};
 }
 function applyPoseToFairy(f,pose){
   const rotX={stand:0,lean:-0.26,sit:-0.85,lie:-Math.PI/2};
@@ -3039,6 +3073,30 @@ function handleFlyDownPress(){
   G.lastFlyDownTap=now;
   G.flyDown=true;
 }
+function isMedicRevealed(){
+  // v4: 남은 시간 1분 이하가 되면 부활 지우개 정체를 모두에게 공개합니다.
+  if(Net.mode!=="online"||Net.meta.phase!=="SEEK"||!Net.meta.medicId)return false;
+  const remain=(Net.meta.phaseEndsAt||0)-Net.now();
+  return remain<=60000&&remain>-5000;
+}
+let _medicRevealAnnounced=false;
+function updateMedicBadges(){
+  const revealed=isMedicRevealed();
+  const medicId=Net.meta.medicId;
+  if(revealed&&!_medicRevealAnnounced){
+    _medicRevealAnnounced=true;
+    const nick=(medicId&&Net.players[medicId]&&Net.players[medicId].nick)||"?";
+    toast(`💉 부활 지우개는 ${nick}이었어요!`);
+  }
+  if(!revealed)_medicRevealAnnounced=false;
+  // v4: 이미 관전 중인(들킨/유령) 시점에서는 부활 지우개가 누구인지 미리 볼 수 있습니다(더 이상 실제 플레이에 영향을 주지 않으므로).
+  const iAmSpectatingNow=G.role==="ghost"||G.spectating;
+  const showToMe=revealed||iAmSpectatingNow;
+  remotes.forEach((r,uid)=>{
+    if(r.fairy.medicBadge)r.fairy.medicBadge.visible=showToMe&&uid===medicId&&r.info.role==="hider"&&!r.info.found;
+  });
+  if(myFairy.medicBadge)myFairy.medicBadge.visible=revealed&&Net.uid===medicId&&G.role==="hider"&&!G.found;
+}
 function isFrozenNow(){
   // 선생님이 얼음 모드를 켜면 지우개(요정)만 움직이지 못합니다. 술래·관전·연습은 제외.
   return !!(Net.mode==="online" && Net.meta && Net.meta.frozen &&
@@ -3186,6 +3244,8 @@ async function tryRevive(){
 }
 function updateMovement(dt){
   const ghost=G.role==="ghost";
+  // v4: 추격전에서는 어떤 경로로든 비행이 켜지지 않도록 매 프레임 강제로 꺼줍니다(2중 안전장치).
+  if(G.isChaseRound&&!ghost&&G.flying){ G.flying=false; G.vy=Math.min(G.vy,0); }
   // v2: 얼음 모드 — 지우개는 제자리에 얼어붙습니다 (중력만 적용해 공중에 뜨지 않게).
   if(isFrozenNow()){
     G.moveIn.x=0; G.moveIn.z=0; G.jumpReq=false; G.flyUp=false; G.flyDown=false;
@@ -4307,11 +4367,11 @@ const Net={
   setMapId(id){
     if(!G.isHost||this.mode!=="online"||!mapIsReady(id))return;
     const patch={mapId:id};
-    if(id!=="corridor")patch.mode="hide"; // 추격전은 복도 맵 전용 — 다른 맵으로 바꾸면 자동으로 숨바꼭질로 되돌립니다
+    if(!CHASE_CAPABLE_MAPS.has(id))patch.mode="hide"; // 추격전 불가 맵으로 바꾸면 자동으로 숨바꼭질로 되돌립니다
     this.fb.update(this.fb.ref(this.db,`rooms/${this.code}/meta`),patch).catch(()=>{});
   },
   setMode(mode){
-    if(!G.isHost||this.mode!=="online"||this.meta.mapId!=="corridor")return;
+    if(!G.isHost||this.mode!=="online"||!CHASE_CAPABLE_MAPS.has(this.meta.mapId))return;
     this.fb.update(this.fb.ref(this.db,`rooms/${this.code}/meta`),{mode}).catch(()=>{});
   },
   /* ── v2: 게임 중 선생님 제어 ── */
@@ -4404,7 +4464,7 @@ const Net={
       const total=(m.roulette.startAt||now)+(m.roulette.perMs||1400)*((m.roulette.final||[]).length)+900;
       if(now>=total){
         this.phaseAdvanceLock=true;
-        const isChase=m.mode==="chase"&&m.mapId==="corridor";
+        const isChase=m.mode==="chase"&&CHASE_CAPABLE_MAPS.has(m.mapId);
         if(isChase)this.setPhase("SEEK",(settings.chaseSec||180)*1000).finally(()=>{this.phaseAdvanceLock=false;});
         else this.setPhase("PAINT",(settings.paintSec||60)*1000).finally(()=>{this.phaseAdvanceLock=false;});
       }
@@ -4486,9 +4546,11 @@ const Net={
         return false;
       }
       const seekerOrder=[...seekers];
-      // v4: 지우개 중 한 명을 무작위로 "부활 지우개(의사)"로 뽑습니다 — 쓰러진 동료를 되살릴 수 있어요.
+      // v4: 추격전은 복도·운동장 맵에서 가능합니다.
+      const isChase=this.meta.mode==="chase"&&CHASE_CAPABLE_MAPS.has(this.meta.mapId);
+      // v4: 추격전일 때만, 지우개 중 한 명을 무작위로 "부활 지우개(의사)"로 뽑습니다 — 쓰러진 동료를 되살릴 수 있어요.
       const hiderPool=ids.filter(u=>!seekers.has(u));
-      const medicId=hiderPool.length?hiderPool[Math.floor(Math.random()*hiderPool.length)]:null;
+      const medicId=isChase&&hiderPool.length?hiderPool[Math.floor(Math.random()*hiderPool.length)]:null;
 
       // 1단계: 역할을 먼저 확정합니다. 술래가 지우개로 잠깐 스폰되는 경쟁 상태를 막습니다.
       const roleUpd={};
@@ -4507,7 +4569,6 @@ const Net={
       // 2단계: 모든 클라이언트가 역할을 받은 뒤 페이즈를 시작합니다.
       await new Promise(resolve=>setTimeout(resolve,80));
       const settings=this.meta.settings||{paintSec:60,seekSec:180,chaseSec:180};
-      const isChase=this.meta.mode==="chase"&&this.meta.mapId==="corridor";
       const metaPatch={
         round:(this.meta.round||0)+1,
         seekerIds:Object.fromEntries(seekerOrder.map(u=>[u,true])),
@@ -4518,7 +4579,7 @@ const Net={
       };
       if(isChase){
         const itemUpd={};
-        CHASE_ITEMS.forEach((it,i)=>{ itemUpd[`rooms/${this.code}/chaseItems/${i}`]={available:true,respawnAt:0}; });
+        chaseItemsForMap(this.meta.mapId).forEach((it,i)=>{ itemUpd[`rooms/${this.code}/chaseItems/${i}`]={available:true,respawnAt:0}; });
         if(Object.keys(itemUpd).length)await update(ref(this.db),itemUpd);
       }
       if(usedRandom){
@@ -4858,7 +4919,11 @@ function onSomeoneRevived(uid,p){ // v4: 부활 지우개가 되살린 순간
   const r=remotes.get(uid);
   if(r){ r.foundApplied=false; clearFairyFound(r.fairy); }
   if(uid===Net.uid){
-    G.found=false; G.role="hider"; G.pose="stand";
+    G.found=false; G.role="hider"; G.pose="stand"; G.vy=0;
+    G.spectating=false; G.flying=false; G.flyUp=false; G.flyDown=false;
+    G.mirror&&setMirror(false);
+    const idx=Math.abs(hashUid(Net.uid||"p"))%hiderSpawns.length;
+    G.pos.copy(hiderSpawns[idx]);
     syncLocalFairy(); updateSpectatorButton(); updateMobileButtons();
     showRoleCard("💉 부활했다!","다시 숨자! 들키지 않도록 조심해요!");
     Audio2.sfxRefill();
@@ -4950,7 +5015,7 @@ function refreshLobbySettingsUI(){
   const settings=Object.assign({paintSec:60,seekSec:180,chaseSec:180},Net.meta.settings||{});
   const box=$("settingsBox");
   box.classList.toggle("readonly",!G.isHost);
-  const isChaseMode=(Net.meta.mapId==="corridor")&&(Net.meta.mode==="chase");
+  const isChaseMode=CHASE_CAPABLE_MAPS.has(Net.meta.mapId)&&(Net.meta.mode==="chase");
   $("hideSeekSettingsBox").classList.toggle("hidden",isChaseMode);
   $("chaseSettingsBox").classList.toggle("hidden",!isChaseMode);
   if(document.activeElement!==$("paintSecSlider")){ $("paintSecSlider").value=settings.paintSec; }
@@ -5002,7 +5067,7 @@ function renderMapCards(){
 function renderModeButtons(){
   const wrap=$("modeBox"); if(!wrap)return;
   const selected=Net.meta.mapId||"classroom";
-  const isCorridor=selected==="corridor";
+  const isCorridor=CHASE_CAPABLE_MAPS.has(selected);
   wrap.classList.toggle("hidden",!isCorridor);
   if(!isCorridor)return;
   const mode=Net.meta.mode||"hide";
@@ -5701,6 +5766,7 @@ function loop(){
     updateRemotes(dt);updateParticles(dt);updatePencil(dt);updateHUD();
     if(G.isChaseRound)chaseItemMeshes.forEach(({group})=>{ if(group.visible&&group.userData.spin)group.userData.spin.rotation.y+=dt*2.2; });
     updateReviveCheck();
+    updateMedicBadges();
   }else if(G.screen==="RESULT"){
     updateRemotes(dt);updateParticles(dt);updateResultReveal();
   }else if(G.screen==="ROULETTE"){
