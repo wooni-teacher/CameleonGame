@@ -179,6 +179,10 @@ label.chk input{width:20px;height:20px;}
 /* ===== HUD ===== */
 #hud{position:fixed;inset:0;pointer-events:none;z-index:30;}
 #timerBox{position:absolute;top:10px;left:50%;transform:translateX(-50%);text-align:center;}
+#medicRevealBadge{margin-top:4px;background:rgba(126,203,95,.95);color:#1a1a1a;font-weight:800;font-size:13px;
+  padding:4px 12px;border-radius:999px;border:2px solid var(--ink);display:inline-block;
+  box-shadow:2px 2px 0 rgba(0,0,0,.25);animation:medicPulse 1.2s ease-in-out infinite;}
+@keyframes medicPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.05);}}
 #timer{font-size:clamp(26px,5vw,40px);color:#fff;text-shadow:2px 2px 0 rgba(0,0,0,.6);}
 #timer.warn{color:var(--red);animation:blink .5s steps(2) infinite;}
 @keyframes blink{50%{opacity:.25;}}
@@ -569,6 +573,7 @@ if (typeof window.TEACHER_CODE === "undefined" || !window.TEACHER_CODE) window.T
     <div id="timer">3:00</div>
     <div id="phaseLabel"></div>
     <div id="iconRow"></div>
+    <div id="medicRevealBadge" class="hidden">💉 부활 지우개: <span id="medicRevealName"></span></div>
   </div>
   <div id="gaugeBox">
     <div class="pal"></div>
@@ -3081,14 +3086,21 @@ function isMedicRevealed(){
 }
 let _medicRevealAnnounced=false;
 function updateMedicBadges(){
+  if(Net.mode!=="online")return;
   const revealed=isMedicRevealed();
   const medicId=Net.meta.medicId;
+  const nick=(medicId&&Net.players[medicId]&&Net.players[medicId].nick)||"?";
   if(revealed&&!_medicRevealAnnounced){
     _medicRevealAnnounced=true;
-    const nick=(medicId&&Net.players[medicId]&&Net.players[medicId].nick)||"?";
     toast(`💉 부활 지우개는 ${nick}이었어요!`);
   }
   if(!revealed)_medicRevealAnnounced=false;
+  // v4: 2D HUD 배지 — 3D 시야각·거리와 무관하게 화면 위쪽에 항상 떠서, 술래를 포함한 모두가 확실히 볼 수 있습니다.
+  const badgeEl=$("medicRevealBadge");
+  if(badgeEl){
+    badgeEl.classList.toggle("hidden",!revealed);
+    if(revealed)$("medicRevealName").textContent=nick;
+  }
   // v4: 이미 관전 중인(들킨/유령) 시점에서는 부활 지우개가 누구인지 미리 볼 수 있습니다(더 이상 실제 플레이에 영향을 주지 않으므로).
   const iAmSpectatingNow=G.role==="ghost"||G.spectating;
   const showToMe=revealed||iAmSpectatingNow;
@@ -3097,6 +3109,9 @@ function updateMedicBadges(){
   });
   if(myFairy.medicBadge)myFairy.medicBadge.visible=revealed&&Net.uid===medicId&&G.role==="hider"&&!G.found;
 }
+// v4: 렌더 루프(화면·역할에 따라 조건부로만 도는 부분)와 완전히 분리된 별도 타이머로,
+// 술래를 포함한 모든 클라이언트에서 화면 상태와 무관하게 항상 공개 여부를 확인합니다.
+setInterval(()=>{ try{ updateMedicBadges(); }catch(e){} },1000);
 function isFrozenNow(){
   // 선생님이 얼음 모드를 켜면 지우개(요정)만 움직이지 못합니다. 술래·관전·연습은 제외.
   return !!(Net.mode==="online" && Net.meta && Net.meta.frozen &&
@@ -3170,7 +3185,7 @@ async function throwBomb(){
   G.hasBomb=false; updateMobileButtons();
   const f=new THREE.Vector3(-Math.sin(G.yaw),0,-Math.cos(G.yaw));
   const tx=G.pos.x+f.x*10, tz=G.pos.z+f.z*10;
-  const bomb={x:G.pos.x,z:G.pos.z,tx,tz,ts:Net.now(),by:Net.uid||"me"};
+  const bomb={x:G.pos.x,z:G.pos.z,y:G.pos.y+1.1,tx,tz,ts:Net.now(),by:Net.uid||"me"};
   if(Net.mode==="online"){
     try{ const {ref,push}=Net.fb; await push(ref(Net.db,`rooms/${Net.code}/bombs`),bomb); }
     catch(err){ console.warn("폭탄 던지기 실패",err); }
@@ -3179,7 +3194,8 @@ async function throwBomb(){
   }
 }
 function handleBombThrown(b){
-  const flightMs=550;
+  const flightMs=650;
+  spawnBombProjectile(b.x,b.y!=null?b.y:1.1,b.z,b.tx,b.tz,flightMs);
   setTimeout(()=>{
     spawnBombExplosionVisual(b.tx,b.tz);
     if(G.role==="hider"&&!G.found){
@@ -3190,6 +3206,31 @@ function handleBombThrown(b){
       }
     }
   },flightMs);
+}
+function spawnBombProjectile(x0,y0,z0,x1,z1,durationMs){
+  // v4: 포물선을 그리며 날아가는 폭탄 — 몸체 + 심지, 회전하면서 목표 지점까지 날아갑니다.
+  const body=new THREE.Mesh(new THREE.SphereGeometry(0.32,10,8),new THREE.MeshLambertMaterial({color:0x2b2b2b}));
+  const fuse=new THREE.Mesh(new THREE.CylinderGeometry(0.045,0.045,0.24,6),new THREE.MeshLambertMaterial({color:0x8a5a33}));
+  fuse.position.y=0.32; body.add(fuse);
+  const spark=new THREE.Mesh(new THREE.SphereGeometry(0.06,6,6),new THREE.MeshBasicMaterial({color:0xffcf4a}));
+  spark.position.y=0.46; body.add(spark);
+  body.position.set(x0,y0,z0);
+  scene.add(body);
+  const dist=Math.hypot(x1-x0,z1-z0);
+  const arcH=Math.max(1.6,Math.min(5.5,dist*0.22)); // 던지는 거리에 비례한 포물선 높이
+  const start=performance.now();
+  const anim=()=>{
+    const t=Math.min(1,(performance.now()-start)/durationMs);
+    body.position.x=lerp(x0,x1,t);
+    body.position.z=lerp(z0,z1,t);
+    body.position.y=lerp(y0,0.32,t)+arcH*4*t*(1-t);
+    body.rotation.x+=0.35; body.rotation.z+=0.22;
+    spark.visible=Math.sin(performance.now()*0.02)>0; // 심지 반짝임
+    if(t<1)requestAnimationFrame(anim);
+    else{ scene.remove(body); body.geometry.dispose(); body.material.dispose();
+      fuse.geometry.dispose(); fuse.material.dispose(); spark.geometry.dispose(); spark.material.dispose(); }
+  };
+  anim();
 }
 function spawnBombExplosionVisual(x,z){
   const ring=new THREE.Mesh(new THREE.RingGeometry(0.3,BOMB_RADIUS,24),
