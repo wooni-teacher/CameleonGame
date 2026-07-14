@@ -456,7 +456,7 @@ if (typeof window.TEACHER_CODE === "undefined" || !window.TEACHER_CODE) window.T
     </div>
     <div id="mapCardBox" class="mapCardBox"></div>
     <div id="modeBox" class="hidden" style="margin-top:10px;text-align:center;">
-      <div class="note" style="margin-bottom:4px;">🎮 게임 모드 (복도+신발장 · 운동장 맵 전용)</div>
+      <div class="note" style="margin-bottom:4px;">🎮 게임 모드</div>
       <div class="row" style="justify-content:center;gap:8px;">
         <button type="button" class="secondary mapBtn" id="modeHideBtn">🙈 숨바꼭질</button>
         <button type="button" class="secondary mapBtn" id="modeChaseBtn">🏃 추격전</button>
@@ -1213,6 +1213,7 @@ function buildMap(){
   hiderSpawns=[[-20,0],[10,10],[-40,20],[20,-25],[-5,-15],[35,15],[-30,-30],[8,32],
                [-50,10],[25,35],[40,-30],[-15,38],[0,0],[-45,-20],[30,0],[12,-38],
                [-25,5],[45,25],[-8,22],[18,18]].map(p=>new THREE.Vector3(p[0],0,p[1]));
+  registerChaseItemsFromSpawns("classroom"); spawnChaseItemMeshes(chaseItemsForMap("classroom"));
 }
 
 /* ==================================================================
@@ -1488,6 +1489,7 @@ function buildScienceLab(){
   hiderSpawns=[[-15,-12],[15,-12],[-15,12],[15,12],[0,-30],[0,30],
                [-40,-20],[40,-20],[-40,20],[42,22],[-8,0],[8,0]]
                .map(p=>new THREE.Vector3(p[0],0,p[1]));
+  registerChaseItemsFromSpawns("science"); spawnChaseItemMeshes(chaseItemsForMap("science"));
 }
 
 /* 정전 기믹 상태 + 로직(서버시간 결정론) */
@@ -1690,6 +1692,7 @@ function buildCafeteria(){
   hiderSpawns=[[0,-26],[-14,-24],[14,-24],[-24,-22],[24,-22],[0,-32],
                [-8,-20],[8,-20],[-20,-30],[20,-30],[-30,-19],[30,-19]]
                .map(p=>new THREE.Vector3(p[0],0,p[1]));
+  registerChaseItemsFromSpawns("cafeteria"); spawnChaseItemMeshes(chaseItemsForMap("cafeteria"));
 }
 /* 기믹 1) 미끄럼 존 — 관성 유지, 입력 방향 전환 둔화(술래·지우개 모두) */
 const Slip={vel:new THREE.Vector3(),last:new THREE.Vector3(),init:false};
@@ -1954,6 +1957,7 @@ function buildLibrary(){
   // 움직이는 책수레 2대(결정론 경로 = f(서버시간))
   buildCart({seed:501,color:0x9a6b3f,path:(t)=>({x:-40,z:pingpong(t,24,-26,26)})}); // A: 좌측 세로 통로
   buildCart({seed:777,color:0x8a5a33,path:(t)=>({x:pingpong(t,20,-16,16),z:34})});   // B: 뒤쪽 가로 통로
+  registerChaseItemsFromSpawns("library"); spawnChaseItemMeshes(chaseItemsForMap("library"));
 }
 function pingpong(t,period,lo,hi){
   const half=period/2, ph=((t%period)+period)%period, span=hi-lo;
@@ -2044,7 +2048,7 @@ function cartCleanup(){ Carts=[]; }
 /* ================= v4: 복도+신발장 맵 (40 × 220, 추격전 전용) ================= */
 const CORR_W=40, CORR_D=220, CORR_H=38;
 // v4: 추격전 가능 맵 목록 — 복도(전용) + 운동장
-const CHASE_CAPABLE_MAPS=new Set(["corridor","playground"]);
+const CHASE_CAPABLE_MAPS=new Set(["classroom","science","cafeteria","library","corridor","playground"]);
 const CHASE_ITEMS_CORRIDOR=[
   {type:"speed",x:-14,y:0.9,z:-90},{type:"speed",x:14,y:0.9,z:-50},
   {type:"speed",x:-14,y:0.9,z:0},  {type:"speed",x:14,y:0.9,z:50},
@@ -2057,7 +2061,22 @@ const CHASE_ITEMS_PLAYGROUND=[
   {type:"speed",x:-50,y:0.9,z:60},
   {type:"bomb", x:20,y:0.9,z:50}, {type:"bomb",x:-60,y:0.9,z:0},{type:"bomb",x:0,y:0.9,z:30},
 ];
-function chaseItemsForMap(mapId){ return mapId==="playground"?CHASE_ITEMS_PLAYGROUND:CHASE_ITEMS_CORRIDOR; }
+function chaseItemsForMap(mapId){
+  if(mapId==="playground")return CHASE_ITEMS_PLAYGROUND;
+  if(mapId==="corridor")return CHASE_ITEMS_CORRIDOR;
+  return CHASE_ITEMS_BY_MAP[mapId]||[];
+}
+// v4: 교실·과학실·급식실·도서관은 전용 좌표를 새로 그리는 대신, 이미 검증된(충돌 없는) 지우개
+// 스폰 지점 일부를 그대로 아이템 위치로 재사용합니다 — 각 build*() 함수 끝에서 채워집니다.
+const CHASE_ITEMS_BY_MAP={};
+function registerChaseItemsFromSpawns(mapId,speedCount=5,bombCount=3){
+  const pts=hiderSpawns.map(v=>({x:v.x,z:v.z}));
+  const n=pts.length; const items=[];
+  if(n===0){ CHASE_ITEMS_BY_MAP[mapId]=items; return; }
+  for(let i=0;i<speedCount;i++){ const p=pts[Math.floor(i*n/speedCount)]; items.push({type:"speed",x:p.x,y:0.9,z:p.z}); }
+  for(let i=0;i<bombCount;i++){ const p=pts[(Math.floor(i*n/bombCount)+1)%n]; items.push({type:"bomb",x:p.x,y:0.9,z:p.z}); }
+  CHASE_ITEMS_BY_MAP[mapId]=items;
+}
 const chaseItemMeshes=[];
 function spawnChaseItemMeshes(items){
   chaseItemMeshes.length=0;
@@ -3150,7 +3169,7 @@ async function tryClaimChaseItem(idx){
     const r=ref(Net.db,`rooms/${Net.code}/chaseItems/${idx}`);
     const res=await runTransaction(r,cur=>{
       if(cur&&cur.available===false)return;
-      return {available:false,respawnAt:Net.now()+16000};
+      return {available:false,respawnAt:Net.now()+10000};
     });
     return !!(res&&res.committed);
   }catch(err){ console.warn("아이템 획득 실패",err); return false; }
@@ -3168,7 +3187,7 @@ async function updateChaseItemPickups(){
     if(Net.mode!=="online"){
       G.practiceChaseItems=G.practiceChaseItems||{};
       G.practiceChaseItems[idx]={available:false};
-      setTimeout(()=>{ if(G.practiceChaseItems)delete G.practiceChaseItems[idx]; resetChaseItemsVisual(); },16000);
+      setTimeout(()=>{ if(G.practiceChaseItems)delete G.practiceChaseItems[idx]; resetChaseItemsVisual(); },10000);
     }
     if(type==="speed"){
       G.speedBoostUntil=performance.now()+SPEED_BOOST_MS;
@@ -4519,6 +4538,22 @@ const Net={
         this.phaseAdvanceLock=true;
         const winner=allFound?"seeker":"hider";
         this.setPhase("RESULT",0,{winner}).then(()=>this.recordRoundStats(winner)).finally(()=>{this.phaseAdvanceLock=false;});
+      }
+    }
+    // v4: 추격전 아이템 리스폰 — 먹힌 지 respawnAt 시간이 지난 아이템을 다시 사용 가능 상태로 되돌립니다.
+    // (지금까지는 respawnAt만 기록해두고 실제로 되돌리는 코드가 없어서 한번 먹은 아이템이 영영 안 돌아왔습니다)
+    if(m.phase==="SEEK"&&m.mode==="chase"&&CHASE_CAPABLE_MAPS.has(m.mapId)){
+      const items=this.chaseItems||{};
+      const upd={};
+      Object.keys(items).forEach(idx=>{
+        const it=items[idx];
+        if(it&&it.available===false&&it.respawnAt&&now>=it.respawnAt){
+          upd[`rooms/${this.code}/chaseItems/${idx}`]={available:true,respawnAt:0};
+        }
+      });
+      if(Object.keys(upd).length){
+        const {ref,update}=this.fb;
+        update(ref(this.db),upd).catch(()=>{});
       }
     }
   },
