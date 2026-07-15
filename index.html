@@ -2158,16 +2158,21 @@ function spawnChaseItemMeshes(items){
       clasp.position.y=0.52;
       g.add(cloak); g.add(clasp); g.userData.spin=cloak;
     }else if(it.type==="jelly"){
-      // v5: 함정 젤리 — 말랑한 반구형 덩어리
-      const jelly=new THREE.Mesh(new THREE.SphereGeometry(0.4,10,8,0,Math.PI*2,0,Math.PI*0.55),
-        new THREE.MeshLambertMaterial({color:0x5fe07a,emissive:0x1f7a35,emissiveIntensity:0.4,transparent:true,opacity:0.85}));
-      jelly.position.y=0.06; g.add(jelly); g.userData.spin=jelly; g.userData.jellyBase=true;
+      // v5-fix: 함정 젤리(줍기 전 아이템) — 초록 물약이 든 유리병. 설치되면 바닥 웅덩이 모양(spawnTrapVisual)으로 바뀝니다.
+      const bottle=new THREE.Mesh(new THREE.CylinderGeometry(0.22,0.26,0.5,10),
+        new THREE.MeshLambertMaterial({color:0x5fe07a,emissive:0x1f7a35,emissiveIntensity:0.35,transparent:true,opacity:0.88}));
+      const neck=new THREE.Mesh(new THREE.CylinderGeometry(0.09,0.12,0.22,8),
+        new THREE.MeshLambertMaterial({color:0x9fe6b0,transparent:true,opacity:0.7}));
+      neck.position.y=0.36;
+      const cork=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.1,0.14,8),new THREE.MeshLambertMaterial({color:0x8a5a33}));
+      cork.position.y=0.52;
+      g.add(bottle); g.add(neck); g.add(cork); g.userData.spin=bottle;
     }else if(it.type==="decoy"){
-      // v5: 미끼 인형 — 작은 회색 인형 실루엣
-      const body=new THREE.Mesh(new THREE.CapsuleGeometry(0.22,0.4,4,8),new THREE.MeshLambertMaterial({color:0x9aa2a8}));
-      body.position.y=0.42;
-      const head=new THREE.Mesh(new THREE.SphereGeometry(0.2,10,8),new THREE.MeshLambertMaterial({color:0xb8bfc4}));
-      head.position.y=0.82;
+      // v5: 미끼 인형(줍기 전 아이템) — 작은 태그/인형 아이콘. 실제 설치되면 진짜 지우개 모델(spawnTrapVisual)로 나타납니다.
+      const body=new THREE.Mesh(new THREE.CapsuleGeometry(0.18,0.32,4,8),new THREE.MeshLambertMaterial({color:0x9aa2a8}));
+      body.position.y=0.34;
+      const head=new THREE.Mesh(new THREE.SphereGeometry(0.16,10,8),new THREE.MeshLambertMaterial({color:0xb8bfc4}));
+      head.position.y=0.64;
       g.add(body); g.add(head); g.userData.spin=head;
     }else{
       const body=new THREE.Mesh(new THREE.SphereGeometry(0.5,10,8),new THREE.MeshLambertMaterial({color:0x2b2b2b}));
@@ -3457,21 +3462,27 @@ async function placeHeldItem(){
 }
 function spawnTrapVisual(id,trap){
   if(trapMeshes.has(id))return;
-  let mesh;
+  let mesh, hitboxMesh=null;
   if(trap.kind==="jelly"){
-    mesh=new THREE.Mesh(new THREE.SphereGeometry(0.55,10,8,0,Math.PI*2,0,Math.PI*0.55),
-      new THREE.MeshLambertMaterial({color:0x5fe07a,emissive:0x1f7a35,emissiveIntensity:0.4,transparent:true,opacity:0.85}));
-    mesh.position.set(trap.x,0.08,trap.z);
-  }else{
+    // 실제로 설치된 함정: 바닥에 퍼진 끈끈한 웅덩이 모양 (아이템 상태였던 유리병과는 다른 모습)
     const g=new THREE.Group(); g.position.set(trap.x,0,trap.z);
-    const body=new THREE.Mesh(new THREE.CapsuleGeometry(0.32,0.7,4,8),new THREE.MeshLambertMaterial({color:0x9aa2a8,transparent:true,opacity:0.55}));
-    body.position.y=0.75; body.rotation.x=Math.PI/2;
-    const head=new THREE.Mesh(new THREE.SphereGeometry(0.3,10,8),new THREE.MeshLambertMaterial({color:0xb8bfc4,transparent:true,opacity:0.55}));
-    head.position.y=0.35;
-    g.add(body); g.add(head);
-    g.userData.hitboxMesh=body;
+    const puddle=new THREE.Mesh(new THREE.SphereGeometry(0.7,10,8,0,Math.PI*2,0,Math.PI*0.35),
+      new THREE.MeshLambertMaterial({color:0x5fe07a,emissive:0x1f7a35,emissiveIntensity:0.4,transparent:true,opacity:0.8}));
+    puddle.position.y=0.04; g.add(puddle); g.userData.spin=puddle;
     mesh=g;
+  }else{
+    // v5-fix: 미끼 인형 — 실제 지우개 캐릭터 모델을 그대로 써서 진짜 쓰러진 지우개처럼 보이게 합니다.
+    const fairy=buildFairy(makeEraserCanvas());
+    fairy.group.position.set(trap.x,0,trap.z);
+    fairy.group.rotation.y=mulberry32((trap.ts||0)|0)()*Math.PI*2;
+    setFairyFound(fairy);            // 회색 반투명 "발견됨" 재질 — 실제 잡힌 지우개와 동일한 모습
+    applyPoseToFairy(fairy,"lie");   // 쓰러져 누운 자세
+    scene.add(fairy.group);
+    hitboxMesh=fairy.hitbox;
+    mesh=fairy.group;
+    mesh.userData.fairyRef=fairy;
   }
+  if(hitboxMesh)mesh.userData.hitboxMesh=hitboxMesh;
   scene.add(mesh);
   trapMeshes.set(id,{mesh,kind:trap.kind,ts:trap.ts});
 }
