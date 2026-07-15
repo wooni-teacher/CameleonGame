@@ -318,6 +318,8 @@ label.chk input{width:20px;height:20px;}
 @keyframes bombPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.07);}}
 #btnRevive{width:96px;height:96px;right:18px;bottom:20px;background:rgba(126,203,95,.95);font-size:17px;
   border-width:4px;box-shadow:3px 3px 0 rgba(0,0,0,.35);animation:bombPulse 0.8s ease-in-out infinite;}
+#btnPlace{width:92px;height:92px;right:18px;bottom:20px;background:rgba(245,197,24,.95);font-size:16px;
+  border-width:4px;box-shadow:3px 3px 0 rgba(0,0,0,.35);}
 #btnFlyDown{width:66px;height:66px;right:22px;bottom:26px;}
 /* 비행 중에는 상승·하강을 한 열에 두고 스포이트·색칠 버튼은 옆 열로 분리합니다. */
 #mobileUI.flyingControls #btnJump{right:18px;bottom:184px;}
@@ -688,6 +690,7 @@ if (typeof window.TEACHER_CODE === "undefined" || !window.TEACHER_CODE) window.T
   <div class="mbtn hidden" id="btnJudge">콕<br>찍기!</div>
   <div class="mbtn hidden" id="btnBomb">💣<br>던지기</div>
   <div class="mbtn hidden" id="btnRevive">💉<br>부활!</div>
+  <div class="mbtn hidden" id="btnPlace">📍<br>놓기</div>
   <div class="mbtn hidden" id="btnFlyDown" aria-label="하강" title="하강">↓</div>
   <div class="poseCol">
     <div class="mbtn" data-pose="stand">서기</div>
@@ -2107,6 +2110,8 @@ const CHASE_ITEMS_CORRIDOR=[
   {type:"speed",x:-14,y:0.9,z:90},
   {type:"bomb", x:14,y:0.9,z:-90}, {type:"bomb",x:-14,y:0.9,z:30},{type:"bomb",x:14,y:0.9,z:70},
   {type:"cloak",x:0,y:0.9,z:-20},  {type:"cloak",x:0,y:0.9,z:60},
+  {type:"jelly",x:14,y:0.9,z:10},  {type:"jelly",x:-14,y:0.9,z:-70},
+  {type:"decoy",x:0,y:0.9,z:80},   {type:"decoy",x:0,y:0.9,z:-60},
 ];
 const CHASE_ITEMS_PLAYGROUND=[
   {type:"speed",x:0,y:0.9,z:-10}, {type:"speed",x:40,y:0.9,z:40},
@@ -2114,6 +2119,8 @@ const CHASE_ITEMS_PLAYGROUND=[
   {type:"speed",x:-50,y:0.9,z:60},
   {type:"bomb", x:20,y:0.9,z:50}, {type:"bomb",x:-60,y:0.9,z:0},{type:"bomb",x:0,y:0.9,z:30},
   {type:"cloak",x:30,y:0.9,z:0},  {type:"cloak",x:-30,y:0.9,z:40},
+  {type:"jelly",x:-20,y:0.9,z:35},{type:"jelly",x:40,y:0.9,z:-20},
+  {type:"decoy",x:-45,y:0.9,z:10},{type:"decoy",x:15,y:0.9,z:-45},
 ];
 function chaseItemsForMap(mapId){
   if(mapId==="playground")return CHASE_ITEMS_PLAYGROUND;
@@ -2123,13 +2130,15 @@ function chaseItemsForMap(mapId){
 // v4: 교실·과학실·급식실·도서관은 전용 좌표를 새로 그리는 대신, 이미 검증된(충돌 없는) 지우개
 // 스폰 지점 일부를 그대로 아이템 위치로 재사용합니다 — 각 build*() 함수 끝에서 채워집니다.
 const CHASE_ITEMS_BY_MAP={};
-function registerChaseItemsFromSpawns(mapId,speedCount=5,bombCount=3,cloakCount=2){
+function registerChaseItemsFromSpawns(mapId,speedCount=5,bombCount=3,cloakCount=2,jellyCount=2,decoyCount=2){
   const pts=hiderSpawns.map(v=>({x:v.x,z:v.z}));
   const n=pts.length; const items=[];
   if(n===0){ CHASE_ITEMS_BY_MAP[mapId]=items; return; }
   for(let i=0;i<speedCount;i++){ const p=pts[Math.floor(i*n/speedCount)]; items.push({type:"speed",x:p.x,y:0.9,z:p.z}); }
   for(let i=0;i<bombCount;i++){ const p=pts[(Math.floor(i*n/bombCount)+1)%n]; items.push({type:"bomb",x:p.x,y:0.9,z:p.z}); }
   for(let i=0;i<cloakCount;i++){ const p=pts[(Math.floor(i*n/cloakCount)+2)%n]; items.push({type:"cloak",x:p.x,y:0.9,z:p.z}); }
+  for(let i=0;i<jellyCount;i++){ const p=pts[(Math.floor(i*n/jellyCount)+3)%n]; items.push({type:"jelly",x:p.x,y:0.9,z:p.z}); }
+  for(let i=0;i<decoyCount;i++){ const p=pts[(Math.floor(i*n/decoyCount)+4)%n]; items.push({type:"decoy",x:p.x,y:0.9,z:p.z}); }
   CHASE_ITEMS_BY_MAP[mapId]=items;
 }
 const chaseItemMeshes=[];
@@ -2148,6 +2157,18 @@ function spawnChaseItemMeshes(items){
       const clasp=new THREE.Mesh(new THREE.SphereGeometry(0.09,8,6),new THREE.MeshLambertMaterial({color:0xE8C25A,emissive:0x8a6a1a,emissiveIntensity:0.3}));
       clasp.position.y=0.52;
       g.add(cloak); g.add(clasp); g.userData.spin=cloak;
+    }else if(it.type==="jelly"){
+      // v5: 함정 젤리 — 말랑한 반구형 덩어리
+      const jelly=new THREE.Mesh(new THREE.SphereGeometry(0.4,10,8,0,Math.PI*2,0,Math.PI*0.55),
+        new THREE.MeshLambertMaterial({color:0x5fe07a,emissive:0x1f7a35,emissiveIntensity:0.4,transparent:true,opacity:0.85}));
+      jelly.position.y=0.06; g.add(jelly); g.userData.spin=jelly; g.userData.jellyBase=true;
+    }else if(it.type==="decoy"){
+      // v5: 미끼 인형 — 작은 회색 인형 실루엣
+      const body=new THREE.Mesh(new THREE.CapsuleGeometry(0.22,0.4,4,8),new THREE.MeshLambertMaterial({color:0x9aa2a8}));
+      body.position.y=0.42;
+      const head=new THREE.Mesh(new THREE.SphereGeometry(0.2,10,8),new THREE.MeshLambertMaterial({color:0xb8bfc4}));
+      head.position.y=0.82;
+      g.add(body); g.add(head); g.userData.spin=head;
     }else{
       const body=new THREE.Mesh(new THREE.SphereGeometry(0.5,10,8),new THREE.MeshLambertMaterial({color:0x2b2b2b}));
       const fuse=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.35,6),new THREE.MeshLambertMaterial({color:0x8a5a33}));
@@ -2242,6 +2263,8 @@ function buildCorridorMap(){
 
 /* ================= v4: 운동장 맵 (170 × 170, 야외) ================= */
 const YARD_W=170, YARD_D=170, YARD_H=90;
+// v5: 스프링클러 위치(장애물과 안 겹치는 열린 공간 위주)
+const PLAYGROUND_SPRINKLERS=[[0,-5],[15,20],[-15,20],[40,-45],[-45,-15]];
 function addSimpleGoal(x,z,mouthFacing){
   const postMat=lambert({color:0xffffff});
   const netMat=lambert({color:0xffffff,transparent:true,opacity:0.25,side:THREE.DoubleSide});
@@ -2307,6 +2330,12 @@ function buildPlaygroundMap(){
   for(let i=0;i<4;i++){ addCyl(0.35,5,barMat,-30+i*2.4,6.2,10,{rz:Math.PI/2,rt:0.35}); }
   addCyl(0.5,6.2,barMat,-30,3.1,10-2.4,{rt:0.5}); addCyl(0.5,6.2,barMat,-30+7.2,3.1,10-2.4,{rt:0.5});
 
+  // ── 8. 스프링클러 (평소엔 조용히 있다가, 가끔 랜덤으로 물을 뿜어 시야를 가립니다) ──
+  const sprinklerMat=lambert({color:0x8a9299});
+  PLAYGROUND_SPRINKLERS.forEach(p=>{
+    addCyl(0.18,0.5,sprinklerMat,p[0],0.25,p[1],{rt:0.22,collide:false,sample:false});
+  });
+
   // 정문 (술래 스폰)
   addBox(10,10,2,lambert({color:0x777777}),0,5,YARD_D/2+0.6,{collide:false});
   seekerSpawns.length=0; seekerSpawns.push(new THREE.Vector3(0,0,YARD_D/2-10));
@@ -2324,6 +2353,61 @@ function updateMapGimmicks(dt){
   if(currentMapId==="science") updateScienceLabGimmick(dt); else sciCleanup();
   if(currentMapId==="cafeteria"){ updateSlipZones(dt); updateConveyor(dt); updateSteam(dt); } else steamCleanup();
   if(currentMapId!=="library") cartCleanup(); else updateBookCarts(dt);
+  if(currentMapId==="playground") updateSprinklerGimmick(dt); else sprinklerCleanup();
+}
+
+/* v5: 운동장 스프링클러 — 서버시간 기준 결정론 사이클로, 20초마다 그중 하나가 랜덤으로 6초간 물을 뿜습니다.
+   물보라 근처에 있으면 안개처럼 시야가 흐려집니다(추격전이 아니어도 항상 동작). */
+const Sprinkler={meshes:null,activeIdx:-1,localStart:0};
+function sprinklerCleanup(){
+  if(Sprinkler.meshes)Sprinkler.meshes.forEach(m=>m.spray.visible=false);
+  Sprinkler.activeIdx=-1; Sprinkler.localStart=0;
+  if(scene.fog&&scene.fog.userData&&scene.fog.userData.sprinkler)scene.fog=null;
+}
+function buildSprinklerMeshes(){
+  return PLAYGROUND_SPRINKLERS.map(p=>{
+    const g=new THREE.Group(); g.position.set(p[0],0.3,p[1]);
+    const spray=new THREE.Mesh(new THREE.ConeGeometry(2.6,7,10,1,true),
+      new THREE.MeshBasicMaterial({color:0xdff4ff,transparent:true,opacity:0.32,side:THREE.DoubleSide}));
+    spray.position.y=3.5; spray.visible=false;
+    const mist=new THREE.Mesh(new THREE.SphereGeometry(4.5,12,8),
+      new THREE.MeshBasicMaterial({color:0xeaf8ff,transparent:true,opacity:0.18}));
+    mist.position.y=2; spray.add(mist);
+    g.add(spray); scene.add(g);
+    return {group:g,spray,pos:new THREE.Vector3(p[0],0,p[1])};
+  });
+}
+function updateSprinklerGimmick(dt){
+  if(!Sprinkler.meshes)Sprinkler.meshes=buildSprinklerMeshes();
+  const inGame=(G.screen==="GAME"&&(G.phase==="SEEK"||G.phase==="PAINT"));
+  let start=0;
+  if(inGame){
+    if(!Sprinkler.localStart)Sprinkler.localStart=Net.now();
+    start=Sprinkler.localStart;
+  }else{ Sprinkler.localStart=0; sprinklerCleanup(); return; }
+  const CYCLE=20, ON=6;
+  const elapsed=Math.max(0,(Net.now()-start)/1000);
+  const cyc=elapsed%CYCLE, cycleId=Math.floor(elapsed/CYCLE);
+  const on=cyc<ON;
+  const idx=on?Math.floor(mulberry32(9001+cycleId)()*PLAYGROUND_SPRINKLERS.length):-1;
+  if(idx!==Sprinkler.activeIdx){
+    Sprinkler.meshes.forEach((m,i)=>{ m.spray.visible=(i===idx); });
+    if(idx>=0&&Sprinkler.activeIdx<0)Audio2.sfxRefill&&Audio2.sfxRefill();
+    Sprinkler.activeIdx=idx;
+  }
+  if(idx>=0){
+    const pulse=0.85+Math.sin(elapsed*10)*0.15;
+    Sprinkler.meshes[idx].spray.scale.set(pulse,1,pulse);
+    // 근처(안개 범위)에 있으면 시야가 흐려집니다.
+    const d=camera.position.distanceTo(Sprinkler.meshes[idx].pos);
+    if(d<16){
+      if(!scene.fog){ scene.fog=new THREE.Fog(0xdcefff,3,34); scene.fog.userData={sprinkler:true}; }
+    }else if(scene.fog&&scene.fog.userData&&scene.fog.userData.sprinkler){
+      scene.fog=null;
+    }
+  }else if(scene.fog&&scene.fog.userData&&scene.fog.userData.sprinkler){
+    scene.fog=null;
+  }
 }
 
 /* ================= v2: 멀티 맵 레지스트리 ================= */
@@ -2731,7 +2815,7 @@ const G={
   remainMs:0, phaseEndsAt:0, serverOffset:0,
   tvMode:false,                                   // v2: 선생님 TV 전체 조망 모드
   joinedMidgame:false,                            // v2: 게임 도중 합류(재입장) 시 스폰 재배치 표시
-  isChaseRound:false, chaseMode:false, speedBoostUntil:0, slowUntil:0, hasBomb:false, invisibleUntil:0, practiceChaseItems:null, // v4: 추격전
+  isChaseRound:false, chaseMode:false, speedBoostUntil:0, slowUntil:0, hasBomb:false, invisibleUntil:0, heldItem:null, practiceChaseItems:null, // v4: 추격전
 };
 let foundLog=[];  // v2: TV HUD용 최근 발견 로그 (최대 5개)
 let tvYaw=0, tvDragActive=false, tvDragStartX=0, tvDragStartYaw=0;
@@ -3220,6 +3304,9 @@ function updateFrozenBanner(){
 }
 /* ================= v4: 추격전 아이템 (속도 물약 / 폭탄) ================= */
 const ITEM_PICKUP_R=2.0, SPEED_BOOST_MS=8000, SPEED_MULT=1.6, BOMB_SLOW_MS=4000, BOMB_SLOW_MULT=0.45, BOMB_RADIUS=6.5, INVISIBLE_MS=10000;
+// v5: 함정 젤리 / 미끼 인형
+const JELLY_RADIUS=1.8, JELLY_SLOW_MS=3000, JELLY_SLOW_MULT=0.4, TRAP_EXPIRE_MS=25000, DECOY_TAG_PENALTY_MS=1500;
+const trapMeshes=new Map(); // pushId -> {mesh, kind}
 function resetChaseItemsVisual(){
   const inChase=G.isChaseRound&&G.phase==="SEEK";
   chaseItemMeshes.forEach(({group,idx})=>{
@@ -3244,7 +3331,9 @@ async function updateChaseItemPickups(){
   if(!G.isChaseRound||G.phase!=="SEEK"||G.role==="ghost"||G.found)return;
   for(const {group,idx,type} of chaseItemMeshes){
     if(!group.visible)continue;
-    if(type==="bomb"&&G.role!=="seeker")continue; // 폭탄은 술래 전용, 속도 물약·투명 망토는 누구나
+    if(type==="bomb"&&G.role!=="seeker")continue; // 폭탄은 술래 전용
+    if((type==="jelly"||type==="decoy")&&G.role!=="hider")continue; // 함정 젤리·미끼 인형은 지우개 전용
+    if((type==="jelly"||type==="decoy")&&G.heldItem)continue; // 이미 손에 뭔가 들고 있으면 못 주움(한 번에 하나)
     const dx=G.pos.x-group.position.x, dz=G.pos.z-group.position.z;
     if(dx*dx+dz*dz>ITEM_PICKUP_R*ITEM_PICKUP_R)continue;
     group.visible=false;
@@ -3262,6 +3351,14 @@ async function updateChaseItemPickups(){
       G.invisibleUntil=performance.now()+INVISIBLE_MS;
       Net.sendPose&&Net.sendPose(); // 다음 위치 전송 때 투명 플래그가 즉시 반영되도록
       Audio2.sfxRefill(); toast("🧥 투명 망토! 10초 동안 상대에게 안 보여요");
+    }else if(type==="jelly"){
+      G.heldItem="jelly";
+      Audio2.sfxRefill(); toast("🟢 함정 젤리 획득! 놓기 버튼으로 바닥에 설치해요");
+      updateMobileButtons();
+    }else if(type==="decoy"){
+      G.heldItem="decoy";
+      Audio2.sfxRefill(); toast("🎭 미끼 인형 획득! 놓기 버튼으로 바닥에 설치해요");
+      updateMobileButtons();
     }else{
       G.hasBomb=true;
       Audio2.sfxRefill(); toast("💣 폭탄 획득! 던지기 버튼을 눌러보세요");
@@ -3341,6 +3438,91 @@ function currentSpeedMultiplier(){
   if(G.slowUntil>now)m*=BOMB_SLOW_MULT;
   return m;
 }
+/* ================= v5: 함정 젤리 / 미끼 인형 (설치형 아이템) ================= */
+async function placeHeldItem(){
+  if(!G.heldItem||G.role!=="hider"||!G.isChaseRound||G.phase!=="SEEK")return;
+  const kind=G.heldItem;
+  G.heldItem=null; updateMobileButtons();
+  const trap={kind,x:G.pos.x,z:G.pos.z,by:Net.uid||"me",byNick:G.nick||Net.nick||"?",ts:Net.now()};
+  if(Net.mode==="online"){
+    try{ const {ref,push}=Net.fb; await push(ref(Net.db,`rooms/${Net.code}/traps`),trap); }
+    catch(err){ console.warn("아이템 설치 실패",err); }
+  }else{
+    trap.id="local"+Date.now();
+    spawnTrapVisual(trap.id,trap);
+    G.practiceTraps=G.practiceTraps||new Map();
+    G.practiceTraps.set(trap.id,trap);
+  }
+  toast(kind==="jelly"?"🟢 함정 젤리를 설치했어요!":"🎭 미끼 인형을 설치했어요!");
+}
+function spawnTrapVisual(id,trap){
+  if(trapMeshes.has(id))return;
+  let mesh;
+  if(trap.kind==="jelly"){
+    mesh=new THREE.Mesh(new THREE.SphereGeometry(0.55,10,8,0,Math.PI*2,0,Math.PI*0.55),
+      new THREE.MeshLambertMaterial({color:0x5fe07a,emissive:0x1f7a35,emissiveIntensity:0.4,transparent:true,opacity:0.85}));
+    mesh.position.set(trap.x,0.08,trap.z);
+  }else{
+    const g=new THREE.Group(); g.position.set(trap.x,0,trap.z);
+    const body=new THREE.Mesh(new THREE.CapsuleGeometry(0.32,0.7,4,8),new THREE.MeshLambertMaterial({color:0x9aa2a8,transparent:true,opacity:0.55}));
+    body.position.y=0.75; body.rotation.x=Math.PI/2;
+    const head=new THREE.Mesh(new THREE.SphereGeometry(0.3,10,8),new THREE.MeshLambertMaterial({color:0xb8bfc4,transparent:true,opacity:0.55}));
+    head.position.y=0.35;
+    g.add(body); g.add(head);
+    g.userData.hitboxMesh=body;
+    mesh=g;
+  }
+  scene.add(mesh);
+  trapMeshes.set(id,{mesh,kind:trap.kind,ts:trap.ts});
+}
+function removeTrapVisual(id){
+  const t=trapMeshes.get(id); if(!t)return;
+  scene.remove(t.mesh);
+  t.mesh.traverse&&t.mesh.traverse(o=>{ if(o.geometry)o.geometry.dispose(); if(o.material)o.material.dispose(); });
+  if(t.mesh.geometry)t.mesh.geometry.dispose();
+  if(t.mesh.material)t.mesh.material.dispose();
+  trapMeshes.delete(id);
+}
+async function consumeTrap(id,kind){
+  if(Net.mode!=="online"){
+    if(G.practiceTraps&&G.practiceTraps.has(id)){ G.practiceTraps.delete(id); removeTrapVisual(id); return true; }
+    return false;
+  }
+  try{
+    const {ref,runTransaction}=Net.fb;
+    const res=await runTransaction(ref(Net.db,`rooms/${Net.code}/traps/${id}`),cur=>cur?null:undefined);
+    return !!(res&&res.committed);
+  }catch(err){ console.warn("함정 처리 실패",err); return false; }
+}
+let _jellyCdUntil=0;
+async function updateTrapChecks(){
+  if(!G.isChaseRound||G.phase!=="SEEK"||G.role!=="seeker"||G.found)return;
+  const now=performance.now();
+  if(now<_jellyCdUntil)return;
+  for(const [id,t] of trapMeshes){
+    if(t.kind!=="jelly")continue;
+    const dx=G.pos.x-t.mesh.position.x, dz=G.pos.z-t.mesh.position.z;
+    if(dx*dx+dz*dz>JELLY_RADIUS*JELLY_RADIUS)continue;
+    _jellyCdUntil=now+500;
+    const got=await consumeTrap(id,"jelly");
+    if(got){
+      G.slowUntil=performance.now()+JELLY_SLOW_MS;
+      Audio2.sfxDrop&&Audio2.sfxDrop();
+      toast("🟢 함정 젤리를 밟아서 미끄러졌어요!");
+    }
+    break;
+  }
+}
+// v5: 방장 전용 — 오래된 함정을 25초 후 자동 정리(무한히 쌓이지 않도록)
+setInterval(()=>{
+  if(!G.isHost||Net.mode!=="online")return;
+  const now=Net.now();
+  trapMeshes.forEach((t,id)=>{
+    if(now-t.ts>TRAP_EXPIRE_MS){
+      try{ Net.fb.runTransaction(Net.fb.ref(Net.db,`rooms/${Net.code}/traps/${id}`),cur=>cur?null:undefined); }catch(e){}
+    }
+  });
+},5000);
 /* ================= v4: 부활 지우개 — 쓰러진 동료 되살리기 ================= */
 const REVIVE_RADIUS=2.4;
 let reviveTargetUid=null;
@@ -3361,7 +3543,7 @@ function updateReviveCheck(){
   if(IS_TOUCH)$("btnRevive").classList.toggle("hidden",!reviveTargetUid);
   if(reviveTargetUid&&!prevTarget&&!_reviveHinted){
     _reviveHinted=true;
-    toast(IS_TOUCH?"💉 근처에 쓰러진 친구가 있어요! 부활 버튼을 눌러요":"💉 근처에 쓰러진 친구가 있어요! E키로 부활시켜요");
+    toast(IS_TOUCH?"💉 근처에 쓰러진 친구가 있어요! 부활 버튼을 눌러요":"💉 근처에 쓰러진 친구가 있어요! R키로 부활시켜요");
   }
   if(!reviveTargetUid)_reviveHinted=false;
 }
@@ -3721,25 +3903,42 @@ async function tryJudge(cx,cy){
     if(r.fairy.hitbox){
       r.fairy.hitbox.userData.uid=uid;
       r.fairy.hitbox.userData.taggable=true;
+      r.fairy.hitbox.userData.isDecoy=false;
       targets.push(r.fairy.hitbox);
     }
+  });
+  // v5: 미끼 인형도 같은 조준 판정 대상에 섞습니다 — 실제로 구분이 안 가야 낚이는 재미가 있어요.
+  trapMeshes.forEach((t,id)=>{
+    if(t.kind!=="decoy")return;
+    const hb=t.mesh.userData.hitboxMesh; if(!hb)return;
+    hb.userData.isDecoy=true; hb.userData.trapId=id;
+    targets.push(hb);
   });
 
   let selectedUid=null;
   let selectedPoint=null;
   let selectedDistance=Infinity;
   let selectedScore=Infinity;
+  let selectedDecoyId=null;
 
   // 1차: 중앙 조준선이 넓어진 전용 히트박스에 직접 닿는 경우
   const hits=judgeRay.intersectObjects(targets,false);
   for(const hit of hits){
     if(hit.distance>currentJudgeRange())continue;
     if(isJudgeBlocked(hit.point,hit.distance))continue;
+    if(hit.object.userData.isDecoy){ selectedDecoyId=hit.object.userData.trapId; selectedPoint=hit.point.clone(); break; }
     selectedUid=hit.object.userData.uid;
     selectedPoint=hit.point.clone();
     selectedDistance=hit.distance;
     selectedScore=0;
     break;
+  }
+
+  if(selectedDecoyId){
+    G.cdUntil=now+DECOY_TAG_PENALTY_MS;
+    const got=await consumeTrap(selectedDecoyId,"decoy");
+    if(got){ Audio2.sfxBreak(); toast("🎭 어? 가짜 미끼 인형이었어요!"); }
+    return;
   }
 
   // 2차: 터치 조작 오차를 보정하는 약한 조준 보정
@@ -3822,7 +4021,8 @@ addEventListener("keydown",e=>{
   if(e.code==="Digit3")setPose("lean");
   if(e.code==="Digit4")setPose("sit");
   if(e.code==="KeyB")throwBomb();
-  if(e.code==="KeyE")tryRevive();
+  if(e.code==="KeyR")tryRevive();
+  if(e.code==="KeyQ")placeHeldItem();
   if(e.code==="KeyM")Audio2.toggleMute();
 });
 addEventListener("keyup",e=>{
@@ -3935,6 +4135,7 @@ function updateMobileButtons(){
   $("btnMirror").classList.toggle("hidden",!hidePaint||G.mirror);
   document.querySelectorAll(".poseCol .mbtn").forEach(b=>b.classList.toggle("hidden",G.role==="seeker"||G.role==="ghost"||G.mirror||G.spectating));
   $("btnBomb").classList.toggle("hidden",!(G.isChaseRound&&G.role==="seeker"&&G.phase==="SEEK"&&G.hasBomb));
+  $("btnPlace").classList.toggle("hidden",!(G.isChaseRound&&G.role==="hider"&&G.phase==="SEEK"&&G.heldItem));
   $("btnRevive").classList.toggle("hidden",!reviveTargetUid);
   updateSpectatorButton();
 }
@@ -4028,6 +4229,7 @@ $("btnFlyDown").addEventListener("lostpointercapture",releaseFlightButton);
 $("btnJudge").onpointerdown=()=>{tryJudge();Audio2.resume();};
 $("btnBomb").onpointerdown=()=>{Audio2.resume();throwBomb();};
 $("btnRevive").onpointerdown=()=>{Audio2.resume();tryRevive();};
+$("btnPlace").onpointerdown=()=>{Audio2.resume();placeHeldItem();};
 $("btnMirror").onpointerdown=()=>{setMirror(true);Audio2.resume();};
 $("btnMirrorDone").onpointerdown=()=>setMirror(false);
 $("btnSpoit").onpointerdown=e=>{
@@ -4326,6 +4528,10 @@ const Net={
       const b=s.val(); if(!b||b.ts<bombsStartAt-500)return;
       handleBombThrown(b);
     });
+    // v5: 함정 젤리 / 미끼 인형 — 설치되면 모두의 화면에 보이고, 소모/만료되면 사라집니다.
+    const trapsRef=ref(this.db,`rooms/${this.code}/traps`);
+    onChildAdded(trapsRef,s=>{ const t=s.val(); if(t)spawnTrapVisual(s.key,t); });
+    onChildRemoved(trapsRef,s=>removeTrapVisual(s.key));
     // 위치 송신 10Hz (변화 있을 때만)
     this.posTimer=setInterval(()=>this.sendPos(),100);
   },
@@ -4529,7 +4735,7 @@ const Net={
   forcePhase(from){
     if(!G.isHost||this.mode!=="online"||this.meta.phase!==from)return;
     const settings=this.meta.settings||{};
-    if(from==="PAINT") this.setPhase("SEEK",(settings.seekSec||180)*1000);
+    if(from==="PAINT") this.setPhase("SEEK",(settings.seekSec||180)*1000,{seekStartAt:this.now()});
     else if(from==="SEEK") this.setPhase("RESULT",0,{winner:this.computeWinner()});
   },
   forceEndRound(){
@@ -4604,12 +4810,12 @@ const Net={
       if(now>=total){
         this.phaseAdvanceLock=true;
         const isChase=m.mode==="chase"&&CHASE_CAPABLE_MAPS.has(m.mapId);
-        if(isChase)this.setPhase("SEEK",(settings.chaseSec||180)*1000).finally(()=>{this.phaseAdvanceLock=false;});
+        if(isChase)this.setPhase("SEEK",(settings.chaseSec||180)*1000,{seekStartAt:this.now()}).finally(()=>{this.phaseAdvanceLock=false;});
         else this.setPhase("PAINT",(settings.paintSec||60)*1000).finally(()=>{this.phaseAdvanceLock=false;});
       }
     }else if(m.phase==="PAINT"&&now>=m.phaseEndsAt){
       this.phaseAdvanceLock=true;
-      this.setPhase("SEEK",(settings.seekSec||180)*1000).finally(()=>{this.phaseAdvanceLock=false;});
+      this.setPhase("SEEK",(settings.seekSec||180)*1000,{seekStartAt:this.now()}).finally(()=>{this.phaseAdvanceLock=false;});
     }else if(m.phase==="SEEK"){
       const hiders=Object.entries(this.players).filter(([u,p])=>p.role==="hider");
       const allFound=hiders.length>0&&hiders.every(([u,p])=>p.found);
@@ -4644,7 +4850,7 @@ const Net={
   async startGame(){
     if(!G.isHost||this.startingRound)return false;
     this.startingRound=true;
-    const {ref,get,update}=this.fb;
+    const {ref,get,update,set}=this.fb;
     try{
       // 두 번째 라운드에서도 오래된 로컬 목록을 쓰지 않고 Firebase의 현재 접속자를 다시 읽습니다.
       const [playerSnap,presenceSnap]=await Promise.all([
@@ -4739,6 +4945,7 @@ const Net={
         const itemUpd={};
         chaseItemsForMap(this.meta.mapId).forEach((it,i)=>{ itemUpd[`rooms/${this.code}/chaseItems/${i}`]={available:true,respawnAt:0}; });
         if(Object.keys(itemUpd).length)await update(ref(this.db),itemUpd);
+        try{ await set(ref(this.db,`rooms/${this.code}/traps`),null); }catch(e){} // v5: 이전 라운드 함정/미끼 정리
       }
       if(usedRandom){
         metaPatch.phase="ROULETTE";
@@ -4747,6 +4954,7 @@ const Net={
       }else if(isChase){
         metaPatch.phase="SEEK";
         metaPatch.phaseEndsAt=this.now()+(settings.chaseSec||180)*1000;
+        metaPatch.seekStartAt=this.now();
         metaPatch.roulette=null;
       }else{
         metaPatch.phase="PAINT";
@@ -4882,7 +5090,8 @@ function enterSeek(prev){
   $("paintPanel").classList.toggle("hidden",G.role!=="hider"||G.found);
   G.lastPosSent="";
   G.isChaseRound=(Net.mode==="online"?Net.meta.mode:(G.chaseMode?"chase":"hide"))==="chase";
-  G.speedBoostUntil=0; G.slowUntil=0; G.hasBomb=false; G.invisibleUntil=0;
+  G.speedBoostUntil=0; G.slowUntil=0; G.hasBomb=false; G.invisibleUntil=0; G.heldItem=null;
+  [...trapMeshes.keys()].forEach(removeTrapVisual); G.practiceTraps=null; // v5: 이전 라운드의 함정/미끼 잔재 정리
   if(prev!=="PAINT"){
     // v4: 추격전은 숨는 페이즈 없이 바로 시작하므로, 여기서 캔버스 초기화·스폰 배치·화면 전환을 대신 해줍니다.
     // (원래 showScreen("GAME")은 enterPaint()에서만 호출되어, PAINT를 건너뛰는 추격전에선
@@ -4980,16 +5189,50 @@ function describeHidePosition(p){
   if(currentMapId==="library")return describeLibraryPosition(p);
   return describeClassroomPosition(p);
 }
+function computeRoundHighlights(){
+  if(Net.mode!=="online")return null;
+  const hiders=Object.entries(Net.players).filter(([u,p])=>p.role==="hider");
+  const seekerIds=Object.keys(Net.meta.seekerIds||{});
+  let topCatcherUid=null,topCatcherCount=0;
+  if(seekerIds.length&&hiders.length){
+    seekerIds.forEach(u=>{
+      const c=hiders.filter(([hu,hp])=>hp.foundBy===u).length;
+      if(c>topCatcherCount){topCatcherCount=c;topCatcherUid=u;}
+    });
+  }
+  let fastestUid=null,fastestSeekerUid=null,fastestSec=null;
+  const caught=hiders.filter(([u,p])=>p.found&&p.foundAt);
+  if(caught.length&&Net.meta.seekStartAt){
+    const f=caught.reduce((a,b)=>((a[1].foundAt)<(b[1].foundAt)?a:b));
+    fastestUid=f[0]; fastestSeekerUid=f[1].foundBy;
+    fastestSec=Math.max(0,Math.round((f[1].foundAt-Net.meta.seekStartAt)/1000));
+  }
+  const survivors=hiders.filter(([u,p])=>!p.found);
+  const survivalUid=survivors.length?null:(hiders.length?hiders.reduce((a,b)=>((a[1].foundAt||0)>(b[1].foundAt||0)?a:b))[0]:null);
+  return {topCatcherUid,topCatcherCount,fastestUid,fastestSeekerUid,fastestSec,survivalUid,survivorUids:survivors.map(([u])=>u)};
+}
 function buildResultRevealList(){
-  return Object.entries(Net.players)
+  const hl=computeRoundHighlights();
+  const list=Object.entries(Net.players)
     .filter(([uid,p])=>p.role==="hider")
     .sort(([a],[b])=>a.localeCompare(b))
     .map(([uid,p])=>{
       let pos=parsePositionString(Net.positions[uid]);
       if(!pos&&uid===Net.uid)pos={x:G.pos.x,y:G.pos.y,z:G.pos.z,ry:G.yaw,pose:G.pose};
       const r=remotes.get(uid);if(!pos&&r)pos={x:r.target.x,y:r.target.y,z:r.target.z,ry:r.target.ry,pose:r.target.pose};
-      return pos?{uid,nick:p.nick||"?",found:!!p.found,pos}:null;
+      if(!pos)return null;
+      let badge=p.found?"🔎 발견":"🙈 생존";
+      let rank=2;
+      if(hl){
+        if(hl.survivalUid===uid){ badge="🏆 생존 챔피언"; rank=0; }
+        else if(hl.fastestUid===uid){ badge="⚡ 가장 빨리 발견됨"; rank=0; }
+        else if(hl.survivorUids&&hl.survivorUids.includes(uid)){ badge="🙈 끝까지 생존"; rank=1; }
+      }
+      return {uid,nick:p.nick||"?",found:!!p.found,pos,badge,rank};
     }).filter(Boolean);
+  // v5: 하이라이트(생존 챔피언·최속 발견)를 맨 앞으로 — 나머지는 원래 순서 유지
+  list.sort((a,b)=>a.rank-b.rank);
+  return list;
 }
 function finishResultReveal(){
   resultTour=null;
@@ -4999,18 +5242,48 @@ function finishResultReveal(){
 }
 function startResultReveal(){
   const list=buildResultRevealList();
-  if(!list.length){finishResultReveal();return;}
-  resultTour={list,start:performance.now(),per:3500,lastIndex:-1};
+  const hl=computeRoundHighlights();
+  let introLine="";
+  if(hl){
+    if(hl.topCatcherUid&&hl.topCatcherCount>0){
+      const nick=(Net.players[hl.topCatcherUid]&&Net.players[hl.topCatcherUid].nick)||"?";
+      introLine+=`🎯 최다 판정: ${nick} (${hl.topCatcherCount}명)`;
+    }
+    if(hl.fastestUid&&hl.fastestSec!=null){
+      const seekerNick=(Net.players[hl.fastestSeekerUid]&&Net.players[hl.fastestSeekerUid].nick)||"?";
+      const hiderNick=(Net.players[hl.fastestUid]&&Net.players[hl.fastestUid].nick)||"?";
+      introLine+=(introLine?" · ":"")+`⚡ 최속 판정: ${seekerNick} (${hl.fastestSec}초 만에 ${hiderNick})`;
+    }
+  }
+  const introMs=introLine?3200:0;
+  if(!list.length&&!introMs){finishResultReveal();return;}
+  resultTour={list,start:performance.now(),per:3500,introMs,introLine,lastIndex:-2};
   $("screenResult").classList.add("tour");
   $("resultReveal").classList.remove("hidden");
 }
 function updateResultReveal(){
   if(!resultTour)return;
   const elapsed=performance.now()-resultTour.start;
-  const idx=Math.floor(elapsed/resultTour.per);
+  if(elapsed<resultTour.introMs){
+    // v5: 하이라이트 타이틀 카드 — 경기장 중심을 천천히 도는 카메라 + 이번 라운드 하이라이트 문구
+    const t=elapsed/1000;
+    const R=Math.min(CUR_W,CUR_D)*0.28;
+    camera.position.set(Math.cos(t*0.25)*R,Math.min(WALL_H-0.5,18),Math.sin(t*0.25)*R);
+    camera.lookAt(0,3,0);
+    myFairy.group.visible=false;
+    if(resultTour.lastIndex!==-1){
+      resultTour.lastIndex=-1;
+      $("revealName").textContent="🏆 이번 라운드 하이라이트";
+      $("revealPlace").textContent=resultTour.introLine||"";
+      $("revealProgress").textContent="";
+    }
+    return;
+  }
+  const tourElapsed=elapsed-resultTour.introMs;
+  const idx=Math.floor(tourElapsed/resultTour.per);
   if(idx>=resultTour.list.length){finishResultReveal();return;}
   const item=resultTour.list[idx],p=item.pos;
-  const localT=(elapsed%resultTour.per)/resultTour.per;
+  const localT=(tourElapsed%resultTour.per)/resultTour.per;
   const angle=localT*Math.PI*1.25-0.7;
   const target=new THREE.Vector3(p.x,p.y+0.75,p.z);
   camera.position.set(
@@ -5024,7 +5297,7 @@ function updateResultReveal(){
   }else myFairy.group.visible=false;
   if(resultTour.lastIndex!==idx){
     resultTour.lastIndex=idx;
-    $("revealName").textContent=`${item.found?"🔎":"🏆"} ${item.nick}`;
+    $("revealName").textContent=`${item.badge} ${item.nick}`;
     $("revealPlace").textContent=`${describeHidePosition(p)}에서 숨었습니다.`;
     $("revealProgress").textContent=`숨은 위치 공개 ${idx+1} / ${resultTour.list.length}`;
   }
@@ -5034,7 +5307,8 @@ function enterResult(){
   G.spectating=false;setMirror(false);Music.stop();updateSpectatorButton();
   G.tvMode=false; $("tvHud").classList.add("hidden"); $("tvFollowBar").classList.add("hidden");
   resetFrozenBanner();
-  G.isChaseRound=false; G.hasBomb=false; resetChaseItemsVisual();
+  G.isChaseRound=false; G.hasBomb=false; G.heldItem=null; resetChaseItemsVisual();
+  [...trapMeshes.keys()].forEach(removeTrapVisual);
   if(G.isHost && Net.meta && Net.meta.frozen) Net.setFrozen(false);
   const winner=(Net.mode==="online"?Net.meta.winner:G.practiceWinner)||"hider";
   const seekWin=winner==="seeker";
@@ -5050,6 +5324,24 @@ function enterResult(){
       best=hiders.reduce((a,b)=>((a[1].foundAt||0)>(b[1].foundAt||0)?a:b))[1].nick;
     }else if(survivors.length) best=survivors.join(", ");
     if(best) body+=`<span class="best">🏆 최고의 지우개: ${best}</span>`;
+
+    // v5: 라운드 하이라이트 — 가장 많이 잡은 술래 / 가장 빠른 첫 판정
+    const seekerIds=Object.keys(Net.meta.seekerIds||{});
+    if(seekerIds.length&&hiders.length){
+      const catchCounts=seekerIds.map(u=>[u,hiders.filter(([hu,hp])=>hp.foundBy===u).length]);
+      const topCatcher=catchCounts.reduce((a,b)=>(b[1]>a[1]?b:a));
+      if(topCatcher[1]>0){
+        const nick=(Net.players[topCatcher[0]]&&Net.players[topCatcher[0]].nick)||"?";
+        body+=`<br><span class="best">🎯 최다 판정: ${nick} (${topCatcher[1]}명)</span>`;
+      }
+      const caught=hiders.filter(([u,p])=>p.found&&p.foundAt);
+      if(caught.length&&Net.meta.seekStartAt){
+        const fastest=caught.reduce((a,b)=>((a[1].foundAt)<(b[1].foundAt)?a:b));
+        const elapsedSec=Math.max(0,Math.round((fastest[1].foundAt-Net.meta.seekStartAt)/1000));
+        const seekerNick=(Net.players[fastest[1].foundBy]&&Net.players[fastest[1].foundBy].nick)||"?";
+        body+=`<br><span class="best">⚡ 가장 빠른 판정: ${seekerNick} (시작 ${elapsedSec}초 만에 ${fastest[1].nick} 발견!)</span>`;
+      }
+    }
   }
   $("resultBody").innerHTML=body||"수고했어요!";
   $("btnNextRound").classList.toggle("hidden",!G.isHost);
@@ -5938,6 +6230,7 @@ function loop(){
     updateRemotes(dt);updateParticles(dt);updatePencil(dt);updateHUD();
     if(G.isChaseRound)chaseItemMeshes.forEach(({group})=>{ if(group.visible&&group.userData.spin)group.userData.spin.rotation.y+=dt*2.2; });
     updateReviveCheck();
+    updateTrapChecks();
     updateMedicBadges();
   }else if(G.screen==="RESULT"){
     updateRemotes(dt);updateParticles(dt);updateResultReveal();
