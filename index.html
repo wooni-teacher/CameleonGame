@@ -464,6 +464,11 @@ if (typeof window.TEACHER_CODE === "undefined" || !window.TEACHER_CODE) window.T
     </div>
 
     <div id="settingsBox" class="settingsBox">
+      <div class="settingsRow">
+        <label>🎯 술래 판정 범위</label>
+        <input type="range" id="judgeRangeSlider" min="6" max="20" step="1" value="13">
+        <span id="judgeRangeVal" class="settingsVal">13</span>
+      </div>
       <div id="hideSeekSettingsBox">
         <div class="settingsRow">
           <label>🙈 숨는 시간</label>
@@ -481,6 +486,11 @@ if (typeof window.TEACHER_CODE === "undefined" || !window.TEACHER_CODE) window.T
           <label>🏃 추격 시간</label>
           <input type="range" id="chaseSecSlider" min="60" max="600" step="10" value="180">
           <span id="chaseSecVal" class="settingsVal">3분</span>
+        </div>
+        <div class="settingsRow">
+          <label>💉 부활 지우개 수</label>
+          <input type="range" id="medicCountSlider" min="0" max="3" step="1" value="1">
+          <span id="medicCountVal" class="settingsVal">1명</span>
         </div>
       </div>
     </div>
@@ -694,6 +704,7 @@ if (typeof window.TEACHER_CODE === "undefined" || !window.TEACHER_CODE) window.T
 <script type="module">
 import * as THREE from 'three';
 import { GLTFLoader } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+import { mergeGeometries } from 'https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/utils/BufferGeometryUtils.js';
 
 /* ============================================================
    Firebase 설정은 이 파일 맨 위 <head>의 "선생님 설정 구역"에서 합니다.
@@ -1778,16 +1789,55 @@ function steamCleanup(){ Steam.dimmed.forEach(f=>setFairyOpacity(f,1)); Steam.di
    ================================================================ */
 let Carts=[];
 /* 선반 한 칸에 책을 한 줄 세움 — 책은 바깥면보다 안쪽(faceX)에 꽂혀 튀어나오지 않음 */
+// v4-perf: 책을 하나하나 별도 Mesh로 그리면 드로우콜이 수천 개가 되어 무거워지므로,
+// 도서관을 지을 때 모든 책의 기하구조를 모아뒀다가 한꺼번에 지오메트리 하나로 합칩니다.
+let _libBookGeoms=null;
+const _libBookColor=new THREE.Color();
 function fillShelfBooks(faceX,cz,lenZ,y,seed){
   const rnd=mulberry32(seed);
   let z=cz-lenZ/2+0.4;
+  // v4-perf: 책 하나하나에 충돌체를 안 만들고, 빈 칸 없이 이어진 구간만 묶어서
+  // 충돌체 1개로 처리합니다. 숨는 틈(빈 칸)은 그대로 충돌 없음이라 기존과 똑같이 숨을 수 있어요.
+  let runStartZ=null, runEndZ=null, runMaxH=0;
+  const flushRun=()=>{
+    if(runStartZ==null)return;
+    addAABBCollider(faceX,y+runMaxH/2,(runStartZ+runEndZ)/2,0.5,runMaxH,runEndZ-runStartZ,0.02);
+    runStartZ=null;
+  };
   while(z<cz+lenZ/2-0.5){
     const bw=0.5+rnd()*0.5, bh=1.2+rnd()*0.5;
     // 약 26%는 빈 칸 → 사이사이 틈 + 안쪽 벽이 보여 움푹 들어간 느낌(그 틈으로 지우개가 들어가 숨음)
-    if(rnd()>0.26)
-      addBox(0.5,bh,bw,lambert({color:LIB_PAL[(rnd()*LIB_PAL.length)|0]}),faceX,y+bh/2,z+bw/2,{collide:true,sample:true});
+    if(rnd()>0.26){
+      const color=LIB_PAL[(rnd()*LIB_PAL.length)|0];
+      if(_libBookGeoms){
+        const geo=new THREE.BoxGeometry(0.5,bh,bw);
+        geo.translate(faceX,y+bh/2,z+bw/2);
+        _libBookColor.setHex(color);
+        const n=geo.attributes.position.count;
+        const colors=new Float32Array(n*3);
+        for(let i=0;i<n;i++){ colors[i*3]=_libBookColor.r; colors[i*3+1]=_libBookColor.g; colors[i*3+2]=_libBookColor.b; }
+        geo.setAttribute("color",new THREE.BufferAttribute(colors,3));
+        _libBookGeoms.push(geo);
+      }else{
+        addBox(0.5,bh,bw,lambert({color}),faceX,y+bh/2,z+bw/2,{collide:false,sample:false});
+      }
+      if(runStartZ==null)runStartZ=z;
+      runEndZ=z+bw; runMaxH=Math.max(runMaxH,bh);
+    }else{
+      flushRun();
+    }
     z+=bw+0.06;
   }
+  flushRun();
+}
+function flushLibraryBookMesh(){
+  if(!_libBookGeoms||!_libBookGeoms.length){ _libBookGeoms=null; return; }
+  const merged=mergeGeometries(_libBookGeoms,false);
+  const mat=new THREE.MeshLambertMaterial({vertexColors:true});
+  const mesh=new THREE.Mesh(merged,mat);
+  mapRoot.add(mesh);
+  _libBookGeoms.forEach(g=>g.dispose());
+  _libBookGeoms=null;
 }
 /* 양쪽 책장 한 줄: 가운데 벽(뒷판) + 양옆 움푹 들어간 칸(선반·측판) + 안쪽에 꽂힌 책.
    굴 높이 아래는 비워 지우개가 들어가 숨음. 책은 프레임 바깥으로 튀어나오지 않음. */
@@ -1817,6 +1867,7 @@ function buildBookRow(cx,height,seed,dir){
 function buildLibrary(){
   WALL_H=56;
   Carts=[];
+  _libBookGeoms=[]; // v4-perf: 이 맵을 짓는 동안 책 지오메트리를 모았다가 끝에서 한 번에 합칩니다.
   const floorTex=canvasTex(256,256,(g,w,h)=>{
     for(let i=0;i<7;i++){ g.fillStyle=i%2?"#bd8f56":"#c69a63"; g.fillRect(0,i*38,w,38); }  // 원목 플랭크(교차 톤)
     g.strokeStyle="rgba(90,60,30,.35)";g.lineWidth=2;
@@ -1958,6 +2009,7 @@ function buildLibrary(){
   buildCart({seed:501,color:0x9a6b3f,path:(t)=>({x:-40,z:pingpong(t,24,-26,26)})}); // A: 좌측 세로 통로
   buildCart({seed:777,color:0x8a5a33,path:(t)=>({x:pingpong(t,20,-16,16),z:34})});   // B: 뒤쪽 가로 통로
   registerChaseItemsFromSpawns("library"); spawnChaseItemMeshes(chaseItemsForMap("library"));
+  flushLibraryBookMesh(); // v4-perf: 모아둔 책 지오메트리를 지금 한 번에 합쳐서 씬에 추가합니다.
 }
 function pingpong(t,period,lo,hi){
   const half=period/2, ph=((t%period)+period)%period, span=hi-lo;
@@ -2054,12 +2106,14 @@ const CHASE_ITEMS_CORRIDOR=[
   {type:"speed",x:-14,y:0.9,z:0},  {type:"speed",x:14,y:0.9,z:50},
   {type:"speed",x:-14,y:0.9,z:90},
   {type:"bomb", x:14,y:0.9,z:-90}, {type:"bomb",x:-14,y:0.9,z:30},{type:"bomb",x:14,y:0.9,z:70},
+  {type:"cloak",x:0,y:0.9,z:-20},  {type:"cloak",x:0,y:0.9,z:60},
 ];
 const CHASE_ITEMS_PLAYGROUND=[
   {type:"speed",x:0,y:0.9,z:-10}, {type:"speed",x:40,y:0.9,z:40},
   {type:"speed",x:-40,y:0.9,z:-10},{type:"speed",x:50,y:0.9,z:-55},
   {type:"speed",x:-50,y:0.9,z:60},
   {type:"bomb", x:20,y:0.9,z:50}, {type:"bomb",x:-60,y:0.9,z:0},{type:"bomb",x:0,y:0.9,z:30},
+  {type:"cloak",x:30,y:0.9,z:0},  {type:"cloak",x:-30,y:0.9,z:40},
 ];
 function chaseItemsForMap(mapId){
   if(mapId==="playground")return CHASE_ITEMS_PLAYGROUND;
@@ -2069,12 +2123,13 @@ function chaseItemsForMap(mapId){
 // v4: 교실·과학실·급식실·도서관은 전용 좌표를 새로 그리는 대신, 이미 검증된(충돌 없는) 지우개
 // 스폰 지점 일부를 그대로 아이템 위치로 재사용합니다 — 각 build*() 함수 끝에서 채워집니다.
 const CHASE_ITEMS_BY_MAP={};
-function registerChaseItemsFromSpawns(mapId,speedCount=5,bombCount=3){
+function registerChaseItemsFromSpawns(mapId,speedCount=5,bombCount=3,cloakCount=2){
   const pts=hiderSpawns.map(v=>({x:v.x,z:v.z}));
   const n=pts.length; const items=[];
   if(n===0){ CHASE_ITEMS_BY_MAP[mapId]=items; return; }
   for(let i=0;i<speedCount;i++){ const p=pts[Math.floor(i*n/speedCount)]; items.push({type:"speed",x:p.x,y:0.9,z:p.z}); }
   for(let i=0;i<bombCount;i++){ const p=pts[(Math.floor(i*n/bombCount)+1)%n]; items.push({type:"bomb",x:p.x,y:0.9,z:p.z}); }
+  for(let i=0;i<cloakCount;i++){ const p=pts[(Math.floor(i*n/cloakCount)+2)%n]; items.push({type:"cloak",x:p.x,y:0.9,z:p.z}); }
   CHASE_ITEMS_BY_MAP[mapId]=items;
 }
 const chaseItemMeshes=[];
@@ -2085,6 +2140,14 @@ function spawnChaseItemMeshes(items){
     if(it.type==="speed"){
       const gem=new THREE.Mesh(new THREE.OctahedronGeometry(0.55),new THREE.MeshLambertMaterial({color:0xffd23f,emissive:0x996600,emissiveIntensity:0.4}));
       g.add(gem); g.userData.spin=gem;
+    }else if(it.type==="cloak"){
+      // v4: 투명 망토 — 뾰족한 후드가 달린 자그마한 망토 모양
+      const cloak=new THREE.Mesh(new THREE.ConeGeometry(0.42,0.7,10,1,true),
+        new THREE.MeshLambertMaterial({color:0x5a3d8a,emissive:0x2a1750,emissiveIntensity:0.35,side:THREE.DoubleSide}));
+      cloak.position.y=0.15;
+      const clasp=new THREE.Mesh(new THREE.SphereGeometry(0.09,8,6),new THREE.MeshLambertMaterial({color:0xE8C25A,emissive:0x8a6a1a,emissiveIntensity:0.3}));
+      clasp.position.y=0.52;
+      g.add(cloak); g.add(clasp); g.userData.spin=cloak;
     }else{
       const body=new THREE.Mesh(new THREE.SphereGeometry(0.5,10,8),new THREE.MeshLambertMaterial({color:0x2b2b2b}));
       const fuse=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.35,6),new THREE.MeshLambertMaterial({color:0x8a5a33}));
@@ -2668,7 +2731,7 @@ const G={
   remainMs:0, phaseEndsAt:0, serverOffset:0,
   tvMode:false,                                   // v2: 선생님 TV 전체 조망 모드
   joinedMidgame:false,                            // v2: 게임 도중 합류(재입장) 시 스폰 재배치 표시
-  isChaseRound:false, chaseMode:false, speedBoostUntil:0, slowUntil:0, hasBomb:false, practiceChaseItems:null, // v4: 추격전
+  isChaseRound:false, chaseMode:false, speedBoostUntil:0, slowUntil:0, hasBomb:false, invisibleUntil:0, practiceChaseItems:null, // v4: 추격전
 };
 let foundLog=[];  // v2: TV HUD용 최근 발견 로그 (최대 5개)
 let tvYaw=0, tvDragActive=false, tvDragStartX=0, tvDragStartYaw=0;
@@ -2743,6 +2806,8 @@ function updateRemotes(dt){
   const k=1-Math.pow(1-0.15,dt*60);
   remotes.forEach(r=>{
     if(r.info.role==="ghost"){ r.fairy.group.visible=false; return; }
+    if(r.invisible){ r.fairy.group.visible=false; if(r.fairy.shadow)r.fairy.shadow.visible=false; return; } // v4: 투명 망토 — 상대방 눈에 안 보이게
+    r.fairy.group.visible=true;
     const oldX=r.cur.x,oldZ=r.cur.z;
     r.cur.x=lerp(r.cur.x,r.target.x,k); r.cur.y=lerp(r.cur.y,r.target.y,k);
     r.cur.z=lerp(r.cur.z,r.target.z,k); r.cur.ry=lerp(r.cur.ry,r.target.ry,k);
@@ -3099,7 +3164,7 @@ function handleFlyDownPress(){
 }
 function isMedicRevealed(){
   // v4: 남은 시간 1분 이하가 되면 부활 지우개 정체를 모두에게 공개합니다.
-  if(Net.mode!=="online"||Net.meta.phase!=="SEEK"||!Net.meta.medicId)return false;
+  if(Net.mode!=="online"||Net.meta.phase!=="SEEK"||!Net.meta.medicIds||!Object.keys(Net.meta.medicIds).length)return false;
   const remain=(Net.meta.phaseEndsAt||0)-Net.now();
   return remain<=60000&&remain>-5000;
 }
@@ -3107,26 +3172,27 @@ let _medicRevealAnnounced=false;
 function updateMedicBadges(){
   if(Net.mode!=="online")return;
   const revealed=isMedicRevealed();
-  const medicId=Net.meta.medicId;
-  const nick=(medicId&&Net.players[medicId]&&Net.players[medicId].nick)||"?";
+  const medicIds=Net.meta.medicIds||{};
+  const medicUidList=Object.keys(medicIds);
+  const nicks=medicUidList.map(u=>(Net.players[u]&&Net.players[u].nick)||"?");
   if(revealed&&!_medicRevealAnnounced){
     _medicRevealAnnounced=true;
-    toast(`💉 부활 지우개는 ${nick}이었어요!`);
+    toast(nicks.length>1?`💉 부활 지우개는 ${nicks.join(", ")}였어요!`:`💉 부활 지우개는 ${nicks[0]||"?"}이었어요!`);
   }
   if(!revealed)_medicRevealAnnounced=false;
   // v4: 2D HUD 배지 — 3D 시야각·거리와 무관하게 화면 위쪽에 항상 떠서, 술래를 포함한 모두가 확실히 볼 수 있습니다.
   const badgeEl=$("medicRevealBadge");
   if(badgeEl){
     badgeEl.classList.toggle("hidden",!revealed);
-    if(revealed)$("medicRevealName").textContent=nick;
+    if(revealed)$("medicRevealName").textContent=nicks.join(", ");
   }
   // v4: 이미 관전 중인(들킨/유령) 시점에서는 부활 지우개가 누구인지 미리 볼 수 있습니다(더 이상 실제 플레이에 영향을 주지 않으므로).
   const iAmSpectatingNow=G.role==="ghost"||G.spectating;
   const showToMe=revealed||iAmSpectatingNow;
   remotes.forEach((r,uid)=>{
-    if(r.fairy.medicBadge)r.fairy.medicBadge.visible=showToMe&&uid===medicId&&r.info.role==="hider"&&!r.info.found;
+    if(r.fairy.medicBadge)r.fairy.medicBadge.visible=showToMe&&!!medicIds[uid]&&r.info.role==="hider"&&!r.info.found;
   });
-  if(myFairy.medicBadge)myFairy.medicBadge.visible=revealed&&Net.uid===medicId&&G.role==="hider"&&!G.found;
+  if(myFairy.medicBadge)myFairy.medicBadge.visible=revealed&&!!medicIds[Net.uid]&&G.role==="hider"&&!G.found;
 }
 // v4: 렌더 루프(화면·역할에 따라 조건부로만 도는 부분)와 완전히 분리된 별도 타이머로,
 // 술래를 포함한 모든 클라이언트에서 화면 상태와 무관하게 항상 공개 여부를 확인합니다.
@@ -3153,7 +3219,7 @@ function updateFrozenBanner(){
   _wasFrozenNow=now;
 }
 /* ================= v4: 추격전 아이템 (속도 물약 / 폭탄) ================= */
-const ITEM_PICKUP_R=2.0, SPEED_BOOST_MS=8000, SPEED_MULT=1.6, BOMB_SLOW_MS=4000, BOMB_SLOW_MULT=0.45, BOMB_RADIUS=6.5;
+const ITEM_PICKUP_R=2.0, SPEED_BOOST_MS=8000, SPEED_MULT=1.6, BOMB_SLOW_MS=4000, BOMB_SLOW_MULT=0.45, BOMB_RADIUS=6.5, INVISIBLE_MS=10000;
 function resetChaseItemsVisual(){
   const inChase=G.isChaseRound&&G.phase==="SEEK";
   chaseItemMeshes.forEach(({group,idx})=>{
@@ -3178,7 +3244,7 @@ async function updateChaseItemPickups(){
   if(!G.isChaseRound||G.phase!=="SEEK"||G.role==="ghost"||G.found)return;
   for(const {group,idx,type} of chaseItemMeshes){
     if(!group.visible)continue;
-    if(type==="bomb"&&G.role!=="seeker")continue;
+    if(type==="bomb"&&G.role!=="seeker")continue; // 폭탄은 술래 전용, 속도 물약·투명 망토는 누구나
     const dx=G.pos.x-group.position.x, dz=G.pos.z-group.position.z;
     if(dx*dx+dz*dz>ITEM_PICKUP_R*ITEM_PICKUP_R)continue;
     group.visible=false;
@@ -3192,6 +3258,10 @@ async function updateChaseItemPickups(){
     if(type==="speed"){
       G.speedBoostUntil=performance.now()+SPEED_BOOST_MS;
       Audio2.sfxRefill(); toast("⚡ 속도 UP!");
+    }else if(type==="cloak"){
+      G.invisibleUntil=performance.now()+INVISIBLE_MS;
+      Net.sendPose&&Net.sendPose(); // 다음 위치 전송 때 투명 플래그가 즉시 반영되도록
+      Audio2.sfxRefill(); toast("🧥 투명 망토! 10초 동안 상대에게 안 보여요");
     }else{
       G.hasBomb=true;
       Audio2.sfxRefill(); toast("💣 폭탄 획득! 던지기 버튼을 눌러보세요");
@@ -3279,7 +3349,7 @@ function updateReviveCheck(){
   const prevTarget=reviveTargetUid;
   reviveTargetUid=null;
   if(G.screen!=="GAME"||G.role!=="hider"||G.found||G.phase!=="SEEK")return;
-  if(!(Net.mode==="online"&&Net.meta.medicId===Net.uid))return;
+  if(!(Net.mode==="online"&&Net.meta.medicIds&&Net.meta.medicIds[Net.uid]))return;
   let best=null,bestD=REVIVE_RADIUS*REVIVE_RADIUS;
   remotes.forEach((r,uid)=>{
     if(r.info.role!=="hider"||!r.info.found)return;
@@ -3605,8 +3675,15 @@ $("panelToggle").onclick=()=>{
 /* ================= 술래 판정 ================= */
 // 술래 사정거리: 조금 떨어져 있어도 잡을 수 있도록 넉넉하게 잡습니다. (2칸 더 늘림)
 const JUDGE_RANGE=13;
-function currentJudgeRange(){ return G.isChaseRound?17:JUDGE_RANGE; }
-function currentJudgeTolerance(){ return G.isChaseRound?1.5:0.8; }
+function currentJudgeRange(){
+  const base=(Net.mode==="online"&&Net.meta.settings&&Net.meta.settings.judgeRange)||JUDGE_RANGE;
+  return G.isChaseRound?base*1.3:base;
+}
+function currentJudgeTolerance(){
+  const base=(Net.mode==="online"&&Net.meta.settings&&Net.meta.settings.judgeRange)||JUDGE_RANGE;
+  const t=base*0.0615; // JUDGE_RANGE(13) 기준 0.8과 같은 비율
+  return G.isChaseRound?t*1.875:t; // 기존 0.8→1.5 배율(1.875배)과 동일하게 유지
+}
 const judgeRay=new THREE.Raycaster();
 const occlusionRay=new THREE.Raycaster();
 const _judgeCenter=new THREE.Vector3();
@@ -3640,7 +3717,7 @@ async function tryJudge(cx,cy){
 
   const targets=[];
   remotes.forEach((r,uid)=>{
-    if(r.info.role!=="hider"||r.info.found)return;
+    if(r.info.role!=="hider"||r.info.found||r.invisible)return; // v4: 투명 망토 상태면 판정 대상에서 제외
     if(r.fairy.hitbox){
       r.fairy.hitbox.userData.uid=uid;
       r.fairy.hitbox.userData.taggable=true;
@@ -3669,7 +3746,7 @@ async function tryJudge(cx,cy){
   // 중앙선에서 몸 크기 정도만 벗어난 대상만 허용하며 벽 너머 판정은 불가합니다.
   if(!selectedUid){
     remotes.forEach((r,uid)=>{
-      if(r.info.role!=="hider"||r.info.found||!r.fairy.hitbox)return;
+      if(r.info.role!=="hider"||r.info.found||r.invisible||!r.fairy.hitbox)return;
       r.fairy.hitbox.getWorldPosition(_judgeCenter);
       _judgeToTarget.copy(_judgeCenter).sub(camera.position);
       const distance=_judgeToTarget.length();
@@ -4107,7 +4184,7 @@ const Net={
       set(ref(this.db,`rooms/${code}/kicks`),null),
     ]);
     await set(ref(this.db,`rooms/${code}/meta`),{host:this.uid,phase:"LOBBY",phaseEndsAt:0,round:0,
-      settings:{paintSec:60,seekSec:180,chaseSec:180},hostRole:"spectator",manualSeekers:null,mapId:"classroom",mode:"hide"});
+      settings:{paintSec:60,seekSec:180,chaseSec:180,judgeRange:13,medicCount:1},hostRole:"spectator",manualSeekers:null,mapId:"classroom",mode:"hide"});
     await set(ref(this.db,`rooms/${code}/players/${this.uid}`),
       {nick,role:"ghost",found:false,lastSeen:serverTimestamp()});
     await set(ref(this.db,`rooms/${code}/presence/${this.uid}`),{online:true,lastSeen:serverTimestamp()});
@@ -4262,6 +4339,7 @@ const Net={
     r.target.x=+a[0];r.target.y=+a[1];r.target.z=+a[2];r.target.ry=+a[3];
     r.target.pose=["stand","lie","lean","sit"][+a[4]||0];
     r.target.flying=a[5]==="1";
+    r.invisible=a[6]==="1"; // v4: 투명 망토 — 보간 없이 즉시 반영(디스플레이용 불리언)
     if(r.cur.x===0&&r.cur.y===0&&r.cur.z===0){Object.assign(r.cur,{x:r.target.x,y:r.target.y,z:r.target.z,ry:r.target.ry});}
   },
   sendPos(){
@@ -4269,7 +4347,8 @@ const Net={
     if(G.lobbyPractice||G.role==="ghost"||G.spectating)return;
     if(G.role==="seeker"&&G.phase==="PAINT")return; // 술래는 숨는 시간에 스폰 전
     const pi=["stand","lie","lean","sit"].indexOf(G.pose);
-    const str=[G.pos.x.toFixed(2),G.pos.y.toFixed(2),G.pos.z.toFixed(2),(G.yaw%(Math.PI*2)).toFixed(2),pi,G.flying?1:0].join(",");
+    const invisFlag=G.invisibleUntil>performance.now()?1:0;
+    const str=[G.pos.x.toFixed(2),G.pos.y.toFixed(2),G.pos.z.toFixed(2),(G.yaw%(Math.PI*2)).toFixed(2),pi,G.flying?1:0,invisFlag].join(",");
     if(str===G.lastPosSent)return;
     G.lastPosSent=str;
     this.positions[this.uid]=str;
@@ -4378,7 +4457,7 @@ const Net={
     }
   },
   async revivePlayer(uid){ // v4: 부활 지우개 전용 — 쓰러진 동료를 되살립니다.
-    if(this.mode!=="online"||this.meta.medicId!==this.uid)return false;
+    if(this.mode!=="online"||!(this.meta.medicIds&&this.meta.medicIds[this.uid]))return false;
     const {ref,runTransaction}=this.fb;
     try{
       const res=await runTransaction(
@@ -4402,7 +4481,7 @@ const Net={
   /* ── v2: 로비 설정 (방장 전용) ── */
   updateSettings(patch){
     if(!G.isHost||this.mode!=="online")return;
-    const settings=Object.assign({paintSec:60,seekSec:180,chaseSec:180},this.meta.settings||{},patch);
+    const settings=Object.assign({paintSec:60,seekSec:180,chaseSec:180,judgeRange:13,medicCount:1},this.meta.settings||{},patch);
     this.fb.update(this.fb.ref(this.db,`rooms/${this.code}/meta/settings`),settings).catch(()=>{});
   },
   toggleManualSeeker(uid){
@@ -4519,7 +4598,7 @@ const Net={
     if(!G.isHost||this.mode!=="online"||this.phaseAdvanceLock)return;
     const m=this.meta;if(!m.phase)return;
     const now=this.now();
-    const settings=m.settings||{paintSec:60,seekSec:180,chaseSec:180};
+    const settings=m.settings||{paintSec:60,seekSec:180,chaseSec:180,judgeRange:13,medicCount:1};
     if(m.phase==="ROULETTE"&&m.roulette){
       const total=(m.roulette.startAt||now)+(m.roulette.perMs||1400)*((m.roulette.final||[]).length)+900;
       if(now>=total){
@@ -4624,9 +4703,12 @@ const Net={
       const seekerOrder=[...seekers];
       // v4: 추격전은 복도·운동장 맵에서 가능합니다.
       const isChase=this.meta.mode==="chase"&&CHASE_CAPABLE_MAPS.has(this.meta.mapId);
-      // v4: 추격전일 때만, 지우개 중 한 명을 무작위로 "부활 지우개(의사)"로 뽑습니다 — 쓰러진 동료를 되살릴 수 있어요.
+      // v4: 추격전일 때만, 지우개 중 일부를 무작위로 "부활 지우개(의사)"로 뽑습니다 — 쓰러진 동료를 되살릴 수 있어요.
+      // 인원수는 방장이 설정한 medicCount를 따르되, 지우개 수를 넘지 않게 제한합니다.
       const hiderPool=ids.filter(u=>!seekers.has(u));
-      const medicId=isChase&&hiderPool.length?hiderPool[Math.floor(Math.random()*hiderPool.length)]:null;
+      const medicCount=Math.max(0,Math.min((this.meta.settings&&this.meta.settings.medicCount)??1,hiderPool.length));
+      const shuffledHiders=[...hiderPool].sort(()=>Math.random()-0.5);
+      const medicIds=isChase?Object.fromEntries(shuffledHiders.slice(0,medicCount).map(u=>[u,true])):null;
 
       // 1단계: 역할을 먼저 확정합니다. 술래가 지우개로 잠깐 스폰되는 경쟁 상태를 막습니다.
       const roleUpd={};
@@ -4644,12 +4726,12 @@ const Net={
 
       // 2단계: 모든 클라이언트가 역할을 받은 뒤 페이즈를 시작합니다.
       await new Promise(resolve=>setTimeout(resolve,80));
-      const settings=this.meta.settings||{paintSec:60,seekSec:180,chaseSec:180};
+      const settings=this.meta.settings||{paintSec:60,seekSec:180,chaseSec:180,judgeRange:13,medicCount:1};
       const metaPatch={
         round:(this.meta.round||0)+1,
         seekerIds:Object.fromEntries(seekerOrder.map(u=>[u,true])),
         seekerOrder,
-        medicId,   // v4: 부활 지우개
+        medicIds,   // v4: 부활 지우개(들)
         winner:null,
         frozen:false   // v2: 새 라운드 시작 시 얼음 해제
       };
@@ -4768,7 +4850,7 @@ function enterPaint(){
   if(G.role==="hider"){
     const idx=Math.abs(hashUid(Net.uid||"p"))%hiderSpawns.length;
     G.pos.copy(hiderSpawns[idx]); G.vy=0;
-    const isMedic=Net.mode==="online"&&Net.meta.medicId===Net.uid;
+    const isMedic=Net.mode==="online"&&Net.meta.medicIds&&Net.meta.medicIds[Net.uid];
     showRoleCard(isMedic?"💉 당신은 부활 지우개!":"🧼 당신은 지우개!",
       isMedic?"몸에 물감을 칠하고 숨자! 들킨 친구 근처에 가면 되살릴 수 있어요!":"몸에 물감을 칠하고 교실에 숨자!");
     $("paintPanel").classList.remove("hidden");
@@ -4800,7 +4882,7 @@ function enterSeek(prev){
   $("paintPanel").classList.toggle("hidden",G.role!=="hider"||G.found);
   G.lastPosSent="";
   G.isChaseRound=(Net.mode==="online"?Net.meta.mode:(G.chaseMode?"chase":"hide"))==="chase";
-  G.speedBoostUntil=0; G.slowUntil=0; G.hasBomb=false;
+  G.speedBoostUntil=0; G.slowUntil=0; G.hasBomb=false; G.invisibleUntil=0;
   if(prev!=="PAINT"){
     // v4: 추격전은 숨는 페이즈 없이 바로 시작하므로, 여기서 캔버스 초기화·스폰 배치·화면 전환을 대신 해줍니다.
     // (원래 showScreen("GAME")은 enterPaint()에서만 호출되어, PAINT를 건너뛰는 추격전에선
@@ -4835,7 +4917,7 @@ function enterSeek(prev){
       G.pos.copy(hiderSpawns[idx]); G.vy=0; G.pose="stand";
       G.joinedMidgame=false;
     }
-    const isMedic=Net.mode==="online"&&Net.meta.medicId===Net.uid;
+    const isMedic=Net.mode==="online"&&Net.meta.medicIds&&Net.meta.medicIds[Net.uid];
     showRoleCard(G.isChaseRound?(isMedic?"💉 부활 지우개 + 추격전!":"🏃 추격전 시작!"):"🤫 들키지 마!",
       G.isChaseRound?(isMedic?"⚡속도 물약 먹고 도망치면서, 잡힌 친구 근처에 가면 되살릴 수 있어요!":"⚡ 아이템을 먹으면 잠깐 빨라져요! 술래를 피해 도망가자!"):"게임 도중 합류! 얼른 숨을 곳을 찾자!");
   }
@@ -5088,7 +5170,7 @@ function refreshLobbyGrid(){
 /* v2: 게임 설정 슬라이더 표시/동기화 */
 function fmtMinSec(sec){ const m=Math.floor(sec/60),s=sec%60; return s?`${m}분 ${s}초`:`${m}분`; }
 function refreshLobbySettingsUI(){
-  const settings=Object.assign({paintSec:60,seekSec:180,chaseSec:180},Net.meta.settings||{});
+  const settings=Object.assign({paintSec:60,seekSec:180,chaseSec:180,judgeRange:13,medicCount:1},Net.meta.settings||{});
   const box=$("settingsBox");
   box.classList.toggle("readonly",!G.isHost);
   const isChaseMode=CHASE_CAPABLE_MAPS.has(Net.meta.mapId)&&(Net.meta.mode==="chase");
@@ -5097,12 +5179,18 @@ function refreshLobbySettingsUI(){
   if(document.activeElement!==$("paintSecSlider")){ $("paintSecSlider").value=settings.paintSec; }
   if(document.activeElement!==$("seekSecSlider")){ $("seekSecSlider").value=settings.seekSec; }
   if(document.activeElement!==$("chaseSecSlider")){ $("chaseSecSlider").value=settings.chaseSec; }
+  if(document.activeElement!==$("judgeRangeSlider")){ $("judgeRangeSlider").value=settings.judgeRange; }
+  if(document.activeElement!==$("medicCountSlider")){ $("medicCountSlider").value=settings.medicCount; }
   $("paintSecSlider").disabled=!G.isHost;
   $("seekSecSlider").disabled=!G.isHost;
   $("chaseSecSlider").disabled=!G.isHost;
+  $("judgeRangeSlider").disabled=!G.isHost;
+  $("medicCountSlider").disabled=!G.isHost;
   $("paintSecVal").textContent=fmtMinSec(+$("paintSecSlider").value);
   $("seekSecVal").textContent=fmtMinSec(+$("seekSecSlider").value);
   $("chaseSecVal").textContent=fmtMinSec(+$("chaseSecSlider").value);
+  $("judgeRangeVal").textContent=$("judgeRangeSlider").value;
+  $("medicCountVal").textContent=`${$("medicCountSlider").value}명`;
   $("hostRoleBox").classList.toggle("hidden",!G.isHost);
   const hostRole=Net.meta.hostRole||"spectator";
   document.querySelectorAll(".hostRoleBtn").forEach(b=>b.classList.toggle("on",b.dataset.role===hostRole));
@@ -5118,6 +5206,14 @@ $("seekSecSlider").addEventListener("input",e=>{
 $("chaseSecSlider").addEventListener("input",e=>{
   $("chaseSecVal").textContent=fmtMinSec(+e.target.value);
   if(G.isHost)Net.updateSettings({chaseSec:+e.target.value});
+});
+$("judgeRangeSlider").addEventListener("input",e=>{
+  $("judgeRangeVal").textContent=e.target.value;
+  if(G.isHost)Net.updateSettings({judgeRange:+e.target.value});
+});
+$("medicCountSlider").addEventListener("input",e=>{
+  $("medicCountVal").textContent=`${e.target.value}명`;
+  if(G.isHost)Net.updateSettings({medicCount:+e.target.value});
 });
 document.querySelectorAll(".hostRoleBtn").forEach(b=>b.onclick=()=>{
   Audio2.resume();
@@ -5341,7 +5437,7 @@ $("qrZoomOverlay").onclick=e=>{if(e.target===$("qrZoomOverlay"))closeQRZoom();};
 function resetLobbyForNewRound(){
   if(!G.isHost||Net.mode!=="online")return;
   Net.fb.update(Net.fb.ref(Net.db,`rooms/${Net.code}/meta`),
-    {settings:{paintSec:60,seekSec:180,chaseSec:180},manualSeekers:null}).catch(()=>{});
+    {settings:{paintSec:60,seekSec:180,chaseSec:180,judgeRange:13,medicCount:1},manualSeekers:null}).catch(()=>{});
 }
 /* v2: 게임 도중 입장(재입장 포함) — 로비를 거치지 않고 곧바로 지우개(요정)로 참여시킵니다.
    튕겨 나갔던 학생이 다시 들어오면 진행 중인 라운드에 바로 합류할 수 있어요. */
